@@ -2,6 +2,18 @@
 
 Десктопный MVP для ведения Twitch-стрима виртуальной ведущей. Приложение состоит из Electron/React-панели и локального Fastify-сервера. В обычном запуске история чата и настройки хранятся в `vtuber.sqlite` внутри `app.getPath('userData')`; dev сохраняет прежний путь `data/vtuber.sqlite`. Четыре API/OAuth-ключа хранятся отдельно в зашифрованном `secrets.bin`. Самостоятельные инструменты работы с БД по умолчанию используют `data/vtuber.sqlite`.
 
+## Скачать готовое приложение для Windows
+
+**[Скачать Windows x64 — v0.1.0 (ZIP)](https://github.com/Alvetore/aivtuberframework/releases/download/v0.1.0/AI-VTuber-Framework-Lite-0.1.0-win-x64.zip)** · [Все релизы](https://github.com/Alvetore/aivtuberframework/releases)
+
+1. Скачайте ZIP из раздела **Assets** релиза.
+2. Полностью распакуйте архив в удобную папку.
+3. Откройте вложенную папку `win-unpacked` и запустите **AI VTuber Framework Lite.exe**.
+
+Node.js и npm для готовой сборки не нужны. Python понадобится только при использовании локального Silero. Сохраняйте EXE вместе с остальными файлами папки; запускать его прямо из ZIP не следует.
+
+В релизе также есть `SHA256SUMS.txt` для проверки скачанного архива. Автоматические архивы GitHub **Source code (zip/tar.gz)** содержат исходники, а не готовую программу. Каталог `release/win-unpacked` создаётся при локальной сборке и не хранится в Git.
+
 **Подробная инструкция пользователя:** [запуск, настройка модели, Twitch, голоса, аватара и OBS](USER_GUIDE_RU.md).
 
 ## Установка из GitHub
@@ -18,7 +30,7 @@ npm start
 
 Готовую папку приложения можно собрать командой `npm run package:dir`; результат появится в `release/win-unpacked`. Команда `npm run package:dist` создаёт Windows-дистрибутивы. Упаковщик пересобирает native SQLite под Electron; для возврата к запуску из исходников может потребоваться `npm rebuild better-sqlite3`. Не копируйте Node-бинарник SQLite в готовый пакет.
 
-## Быстрый запуск в один клик
+## Запуск из исходников в один клик
 
 Самый простой способ — запустить готовый скрипт:
 - **Двойной клик по [start.bat](start.bat)** (в Проводнике Windows)
