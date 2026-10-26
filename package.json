@@ -1,0 +1,103 @@
+{
+  "name": "ai-vtuber-framework-lite",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite --host 127.0.0.1",
+    "dev:electron": "wait-on tcp:5173 && electron . --dev",
+    "build": "tsc --noEmit && vite build && npm run build:server",
+    "build:server": "tsup src/server/index.ts --format esm --target node20 --external better-sqlite3 --out-dir dist/server",
+    "start": "electron .",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "test": "vitest run",
+    "package:dir": "npm run build && electron-builder --dir",
+    "package:dist": "npm run build && electron-builder"
+  },
+  "main": "src/electron/main.cjs",
+  "dependencies": {
+    "@fastify/cors": "^10.0.0",
+    "@fastify/websocket": "^11.0.0",
+    "@hookform/resolvers": "^5.5.7",
+    "adm-zip": "^0.6.0",
+    "better-sqlite3": "^11.0.0",
+    "drizzle-orm": "^0.36.0",
+    "fastify": "^5.0.0",
+    "fastify-type-provider-zod": "^4.0.0",
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^6.5.10",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.84.0",
+    "ws": "^8.18.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.0",
+    "@types/adm-zip": "^0.5.8",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/ws": "^8.5.13",
+    "concurrently": "^9.1.0",
+    "drizzle-kit": "^0.28.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^26.15.3",
+    "tsup": "^8.5.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.1",
+    "vitest": "^5.0.2",
+    "wait-on": "^9.1.0"
+  },
+  "build": {
+    "appId": "com.aivtuber.frameworklite",
+    "productName": "AI VTuber Framework Lite",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "src/electron/**/*",
+      "scripts/silero_server.py",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "scripts",
+        "to": "scripts",
+        "filter": [
+          "*.py",
+          "*.txt"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "asar": false
+  }
+}

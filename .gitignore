@@ -1,0 +1,47 @@
+# Dependencies and generated output
+node_modules/
+/dist/
+/release/
+coverage/
+.vite/
+.vitest/
+test-results/
+playwright-report/
+*.tsbuildinfo
+
+# Local runtime data, models, backups and credentials
+/data/
+/models/
+/backups/
+.env
+.env.*
+!.env.example
+secrets.bin
+secrets.bin.*
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Python environments and caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Temporary files and local tools
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*~
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
