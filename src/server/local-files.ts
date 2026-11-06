@@ -19,6 +19,11 @@ export async function containedFile(root: string, relative: string): Promise<str
   return (await stat(file)).isFile() ? file : null;
 }
 
+export function isModelConfigPath(file: string): boolean {
+  const name = path.basename(file).toLowerCase();
+  return name.endsWith('.model3.json') || name === 'model.json';
+}
+
 async function sendFile(reply: FastifyReply, root: string, relative: string, modelOnly = false) {
   try {
     const file = await containedFile(root, relative);
@@ -41,9 +46,19 @@ export function registerLocalFiles(app: FastifyInstance, rendererRoot: string | 
     app.get('/assets/*', (request, reply) => sendFile(reply, rendererRoot, `assets/${(request.params as { '*': string })['*']}`));
     app.get('/live2dcubismcore.min.js', (_request, reply) => sendFile(reply, rendererRoot, 'live2dcubismcore.min.js'));
   }
-  app.get('/api/avatar/model/*', (request, reply) => {
+  app.get('/api/avatar/model/*', async (request, reply) => {
     const modelPath = getModelPath();
-    if (!modelPath) return reply.code(404).send('No Live2D model configured');
-    return sendFile(reply, path.dirname(path.resolve(modelPath)), (request.params as { '*': string })['*'] || path.basename(modelPath), true);
+    if (!modelPath || !isModelConfigPath(modelPath)) return reply.code(404).send('No Live2D model configured');
+    const resolved = path.resolve(modelPath);
+    // A config file at a drive root would turn the asset route into a
+    // read primitive for every allowed file on that drive.
+    if (path.dirname(resolved) === path.parse(resolved).root) return reply.code(403).send('Forbidden');
+    try {
+      if (!(await stat(resolved)).isFile()) return reply.code(404).send('No Live2D model configured');
+    } catch (error) {
+      if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return reply.code(404).send('No Live2D model configured');
+      throw error;
+    }
+    return sendFile(reply, path.dirname(resolved), (request.params as { '*': string })['*'] || path.basename(resolved), true);
   });
 }

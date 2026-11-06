@@ -27,7 +27,7 @@ export class ConversationEngine {
   get state():RuntimeState {return {...this.runtime};}
   get activeOperationId(){return this.active?.operation.id;}
   private changed(){this.bus.emit('WORKSPACE_CHANGED',undefined);}
-  private safeError(error:string){const s=this.settings();return redactSecrets(error,secretKeys.map(k=>s[k]));}
+  private safeError(error:string){const s=this.settings() as Settings & Partial<Record<typeof secretKeys[number],string>>;return redactSecrets(error,secretKeys.map(k=>s[k]));}
   private operation(op:Operation){this.db.saveOperation(op);this.changed();}
   updateOperation(id:string,stage:Operation['stage'],outcome?:Operation['outcome'],error?:string,metrics?:{synthesisMs?:number;playbackMs?:number}) {
     const op=this.db.getOperation(id);
@@ -131,8 +131,14 @@ export class ConversationEngine {
   async streamerTick(){
     const s=this.settings();
     if(this.runtime.state!=='running'||s.mode!=='streamer'||this.active||this.tts?.state==='speaking')return;
+    const now=Date.now();
+    // Do not create a skipped operation every five seconds while the host is
+    // cooling down or has exhausted the minute budget.
+    if(now<this.lastResponseAt+s.responseCooldownSeconds*1000)return;
+    this.responseTimes=this.responseTimes.filter(t=>now-t<60_000);
+    if(this.responseTimes.length>=s.maxResponsesPerMinute)return;
     const recent=this.db.scopedContext(1,this.db.activeProfileId(),'twitch',this.runtime.sessionId)[0];
-    if(!recent||Date.now()-Date.parse(recent.timestamp)<s.idleTimeoutSeconds*1000)return;
+    if(!recent||now-Date.parse(recent.timestamp)<s.idleTimeoutSeconds*1000)return;
     await this.receive({id:crypto.randomUUID(),twitchId:'',username:s.characterName,message:`${s.characterName}, поддержи разговор со зрителями по недавним темам чата.`,timestamp:new Date().toISOString(),badges:[]},'twitch',false,crypto.randomUUID(),false);
   }
 }

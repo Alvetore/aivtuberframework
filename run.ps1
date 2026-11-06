@@ -1,4 +1,5 @@
 ﻿# AI VTuber Framework Lite - Запуск
+Set-Location -LiteralPath $PSScriptRoot
 $Host.UI.RawUI.WindowTitle = 'AI VTuber Framework Lite'
 
 Write-Host '==============================================' -ForegroundColor Magenta
@@ -7,11 +8,11 @@ Write-Host '==============================================' -ForegroundColor Mag
 
 if (-not (Test-Path 'node_modules')) {
     Write-Host '[1/3] Установка зависимостей...' -ForegroundColor Cyan
-    npm install
+    npm ci
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-if (-not (Test-Path 'dist\server\index.js')) {
+if (-not (Test-Path 'dist\server\index.js') -or -not (Test-Path 'dist\renderer\index.html')) {
     Write-Host '[2/3] Сборка проекта...' -ForegroundColor Cyan
     npm run build
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

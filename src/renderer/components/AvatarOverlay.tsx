@@ -69,6 +69,7 @@ export function AvatarOverlay() {
   };
   const clean = settings?.overlayClean ?? true;
   return <div className={'avatar-overlay ' + (clean ? 'is-clean' : '')}>
+    {clean && <div className="overlay-drag-strip" aria-hidden="true" />}
     {!clean && <div className="overlay-controls"><span>{c('Аватар · управление в главном окне','Avatar · controls in the main window')}</span><button type="button" aria-label={c('Закрыть окно аватара','Close avatar window')} onClick={close}>{c('Закрыть','Close')}</button></div>}
     {settings && <AvatarPreview settings={settings} mouthOpen={mouthOpen} onState={report} clean={clean}/>}
   </div>;

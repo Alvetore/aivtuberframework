@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 > nul
+cd /d "%~dp0"
 title AI VTuber Framework Lite
 
 echo ==============================================
@@ -8,15 +9,20 @@ echo ==============================================
 
 if not exist node_modules (
     echo [1/3] Installing dependencies...
-    call npm install
+    call npm ci
     if errorlevel 1 goto error
 )
 
-if not exist dist\server\index.js (
-    echo [2/3] Building project...
-    call npm run build
-    if errorlevel 1 goto error
-)
+if not exist dist\server\index.js goto build
+if not exist dist\renderer\index.html goto build
+goto launch
+
+:build
+echo [2/3] Building project...
+call npm run build
+if errorlevel 1 goto error
+
+:launch
 
 if not exist .env (
     copy .env.example .env > nul

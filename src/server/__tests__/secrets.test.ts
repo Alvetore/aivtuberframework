@@ -6,7 +6,9 @@ import { secretEnvironment, secretKeys, type SecretValues } from '../../shared/s
 const values: SecretValues = {
   twitchOauthToken: 'oauth:review-twitch-secret', llmApiKey: 'review-llm-secret',
   openaiTtsApiKey: 'review-tts-secret', elevenlabsApiKey: 'review-eleven-secret',
+  vtsAuthToken: 'review-vts-secret',
 };
+const legacyKey = (key: typeof secretKeys[number]) => key === 'vtsAuthToken' ? 'vts_auth_token' : key;
 const environment = Object.fromEntries(secretKeys.map(key => [secretEnvironment[key], values[key]]));
 
 describe('active server secrets', () => {
@@ -31,7 +33,7 @@ describe('active server secrets', () => {
       expect(secrets.publicSettings({})[key]).toBe('');
       expect(secrets.effective({})[key]).toBe('');
     }
-    expect(persist).toHaveBeenCalledTimes(4);
+    expect(persist).toHaveBeenCalledTimes(5);
   });
 
   it('keeps active values unchanged when durable storage rejects a write', async () => {
@@ -58,7 +60,7 @@ describe('legacy SQLite secret migration', () => {
   function fixture() {
     db = new AppDatabase(':memory:');
     const insert = db.raw().prepare('INSERT INTO settings (key,value) VALUES (?,?)');
-    for (const key of secretKeys) insert.run(key, JSON.stringify(values[key]));
+    for (const key of secretKeys) insert.run(legacyKey(key), JSON.stringify(values[key]));
     insert.run('characterName', JSON.stringify('Preserved'));
     insert.run('unknown_setting', JSON.stringify({ nested: [0, false, null] }));
     db.recordChat({ id: 'preserve-chat', twitchId: 'viewer', username: 'Alice', message: 'preserve message', timestamp: '2026-10-25T00:00:00.000Z', badges: [] });
@@ -79,11 +81,11 @@ describe('legacy SQLite secret migration', () => {
     let confirm!: () => void;
     const persist = vi.fn(async (incoming) => {
       expect(incoming).toEqual(values);
-      expect(savedSecrets(current)).toHaveLength(6);
+      expect(savedSecrets(current)).toHaveLength(7);
       await new Promise<void>(resolve => { confirm = resolve; });
     });
     const migration = current.migrateSecrets(persist);
-    expect(savedSecrets(current)).toHaveLength(6);
+    expect(savedSecrets(current)).toHaveLength(7);
     confirm();
     await migration;
     expect(savedSecrets(current)).toEqual([

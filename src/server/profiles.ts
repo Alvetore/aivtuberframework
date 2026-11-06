@@ -11,6 +11,7 @@ export function registerProfileRoutes(app: FastifyInstance, db: AppDatabase, con
   beforeSelect: () => void;
   applySettings: (settings: Settings) => void;
   publish: (type: string, payload: unknown) => void;
+  getPublicSettings: () => Settings;
 }) {
   const changed = () => context.publish('profiles', db.listProfiles());
   app.get('/api/profiles', () => db.listProfiles());
@@ -52,9 +53,9 @@ export function registerProfileRoutes(app: FastifyInstance, db: AppDatabase, con
       const selected = db.selectProfile(request.params.id);
       context.applySettings(selected);
     }
-    const settings = db.getSettings();
+    const settings = context.getPublicSettings();
     changed();
-    // Settings contain no credentials; the primary integration publishes its masked DTO.
+    // Always use the masked public DTO, even when selecting the already active profile.
     return { settings, profiles: db.listProfiles() };
   });
 }

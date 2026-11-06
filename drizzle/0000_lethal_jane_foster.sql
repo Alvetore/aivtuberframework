@@ -1,4 +1,4 @@
-CREATE TABLE `messages` (
+CREATE TABLE IF NOT EXISTS `messages` (
 	`id` text PRIMARY KEY NOT NULL,
 	`viewer_id` integer,
 	`username` text NOT NULL,
@@ -8,21 +8,21 @@ CREATE TABLE `messages` (
 	FOREIGN KEY (`viewer_id`) REFERENCES `viewers`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `idx_messages_timestamp` ON `messages` (`timestamp`);--> statement-breakpoint
-CREATE INDEX `idx_messages_viewer` ON `messages` (`viewer_id`);--> statement-breakpoint
-CREATE TABLE `sessions` (
+CREATE INDEX IF NOT EXISTS `idx_messages_timestamp` ON `messages` (`timestamp`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_messages_viewer` ON `messages` (`viewer_id`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `sessions` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`start_time` text NOT NULL,
 	`end_time` text,
 	`message_count` integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE `settings` (
+CREATE TABLE IF NOT EXISTS `settings` (
 	`key` text PRIMARY KEY NOT NULL,
 	`value` text NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE `viewers` (
+CREATE TABLE IF NOT EXISTS `viewers` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`twitch_id` text NOT NULL,
 	`username` text NOT NULL,
@@ -31,4 +31,4 @@ CREATE TABLE `viewers` (
 	`message_count` integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `viewers_twitch_id_unique` ON `viewers` (`twitch_id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `viewers_twitch_id_unique` ON `viewers` (`twitch_id`);

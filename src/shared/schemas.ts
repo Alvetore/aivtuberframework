@@ -6,7 +6,9 @@ export const SettingsSchema = z.object({
   twitchOauthToken: z.string(),
   characterName: z.string().min(1).max(64),
   characterPrompt: z.string().max(4000),
-  characterLanguage: z.enum(['ru', 'en', 'auto']).default('ru'),
+  // Zod 4 keeps defaults through .partial(); a default here would overwrite
+  // the saved language whenever a partial settings form is submitted.
+  characterLanguage: z.enum(['ru', 'en', 'auto']).optional(),
   responseStyle: z.string().max(1000),
   mode: z.enum(['reactive', 'streamer']),
   contextMessageLimit: z.number().int().min(1).max(200),

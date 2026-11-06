@@ -106,9 +106,26 @@ describe('workspace migration and profile persistence', () => {
     expect(db.activeProfileId()).toBe(inherited);
     expect({ profiles: db.listProfiles(), settings: db.getSettings(), workspace: db.raw().prepare('SELECT * FROM workspace_state ORDER BY key').all() }).toEqual(before);
   });
+  it('prunes old terminal operations and only prunes messages when enabled', () => {
+    const db = openWorkspace();
+    const profileId = db.activeProfileId();
+    db.saveOperation({ id: 'old-operation', author: 'A', prompt: 'P', profileId, sessionId: null, source: 'twitch', stage: 'finished', outcome: 'completed', createdAt: '2020-01-01T00:00:00Z' });
+    const oldMessage: ChatMessage = { id: 'old-message', twitchId: 'old-viewer', username: 'Old', message: 'old', timestamp: '2020-01-01T00:00:00Z', badges: [] };
+    db.recordChat(oldMessage);
+    db.tagMessage(oldMessage.id, { profileId, sessionId: null, source: 'twitch' });
+
+    expect(db.pruneRetention(Date.now(), { operationDays: 30, messageDays: 0 })).toEqual({ operations: 1, messages: 0 });
+    expect(db.getOperation('old-operation')).toBeUndefined();
+    expect(db.raw().prepare('SELECT id FROM messages WHERE id=?').get('old-message')).toBeDefined();
+
+    expect(db.pruneRetention(Date.now(), { operationDays: 0, messageDays: 30 })).toEqual({ operations: 0, messages: 1 });
+    expect(db.raw().prepare('SELECT id FROM messages WHERE id=?').get('old-message')).toBeUndefined();
+    expect(db.raw().prepare('SELECT message_id FROM message_context WHERE message_id=?').get('old-message')).toBeUndefined();
+  });
+
   it('cancels interrupted work on restart while preserving actual usage and unknown historical metrics', () => {
     let db = openWorkspace(); const profileId = db.activeProfileId(); const sessionId = db.startSession(profileId);
-    const operation: Operation = { id: 'interrupted', author: 'Автор', prompt: 'Вопрос', profileId, sessionId, source: 'twitch', stage: 'queued', outcome: 'pending', createdAt: '2026-10-25T12:00:00Z', llmMs: 120, attempts: 2, usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 } };
+    const operation: Operation = { id: 'interrupted', author: 'Автор', prompt: 'Вопрос', profileId, sessionId, source: 'twitch', stage: 'queued', outcome: 'pending', createdAt: new Date().toISOString(), llmMs: 120, attempts: 2, usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 } };
     db.saveOperation(operation);
     db = reopenWorkspace();
     expect(db.recentOperations()[0]).toMatchObject({ id: 'interrupted', outcome: 'cancelled', stage: 'finished', reason: 'server_restarted', llmMs: 120, attempts: 2, usage: { totalTokens: 15 } });

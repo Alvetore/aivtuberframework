@@ -24,9 +24,9 @@ describe('AppDatabase', () => {
     }
   });
 
-  it('initializes Drizzle ORM and tables', () => {
-    expect(db.orm()).toBeDefined();
+  it('initializes the SQLite schema', () => {
     expect(db.raw()).toBeDefined();
+    expect(db.raw().prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('messages','sessions','settings','viewers')").all()).toHaveLength(4);
   });
 
   it('manages sessions and session message counts', () => {
@@ -109,6 +109,12 @@ describe('AppDatabase', () => {
     const userOnlyContext = db.context(10, { excludeBot: true });
     expect(userOnlyContext.length).toBe(1);
     expect(userOnlyContext[0].username).toBe('Bob');
+  });
+
+  it('marks a missing session as not found', () => {
+    let error: unknown;
+    try { db.sessionDetail(9999); } catch (caught) { error = caught; }
+    expect(error).toMatchObject({ statusCode: 404 });
   });
 
   it('saves and loads settings properly', () => {

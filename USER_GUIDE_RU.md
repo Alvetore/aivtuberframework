@@ -39,7 +39,7 @@
 ### Вариант А. Готовая Windows-сборка — рекомендуется
 
 1. Откройте [GitHub Releases](https://github.com/Alvetore/aivtuberframework/releases).
-2. В **Assets** скачайте **AI-VTuber-Framework-Lite-0.1.0-win-x64.zip** для версии 0.1.0. [Прямая ссылка на ZIP](https://github.com/Alvetore/aivtuberframework/releases/download/v0.1.0/AI-VTuber-Framework-Lite-0.1.0-win-x64.zip).
+2. В **Assets** скачайте **AI-VTuber-Framework-Lite-0.1.1-win-x64.zip** для версии 0.1.1. [Прямая ссылка на ZIP](https://github.com/Alvetore/aivtuberframework/releases/download/v0.1.1/AI-VTuber-Framework-Lite-0.1.1-win-x64.zip).
 3. Полностью распакуйте архив в удобную папку на компьютере.
 4. Откройте вложенную папку **`win-unpacked`** и запустите **AI VTuber Framework Lite.exe**.
 5. Дождитесь главного окна и надписи **«Связь установлена»**.
@@ -50,7 +50,7 @@
 
 Сохраняйте всю папку `win-unpacked`: рядом с EXE находятся необходимые ресурсы. Для удобства создайте ярлык на EXE; перенос одного EXE в другую папку не заменяет перенос приложения.
 
-В Assets опубликован `SHA256SUMS.txt`. При необходимости получите SHA-256 скачанного ZIP командой `Get-FileHash -Algorithm SHA256 .\AI-VTuber-Framework-Lite-0.1.0-win-x64.zip` в PowerShell и сравните значение с этим файлом. До запуска ZIP необходимо распаковать.
+В Assets опубликован `SHA256SUMS.txt`. При необходимости получите SHA-256 скачанного ZIP командой `Get-FileHash -Algorithm SHA256 .\AI-VTuber-Framework-Lite-0.1.1-win-x64.zip` в PowerShell и сравните значение с этим файлом. До запуска ZIP необходимо распаковать.
 
 ### Вариант Б. Запуск из папки проекта
 

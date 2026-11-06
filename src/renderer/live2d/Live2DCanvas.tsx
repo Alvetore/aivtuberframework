@@ -1,18 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import * as PIXI from 'pixi.js';
-import { Live2DModel } from 'pixi-live2d-display/cubism4';
+import type { Application } from 'pixi.js';
+import type { Live2DModel as Live2DModelInstance } from 'pixi-live2d-display/cubism4';
 import { avatarLayout } from './layout';
 import { useCopy } from '../i18n/useCopy';
-
-// Expose PIXI globally for cubism plugins
-if (typeof window !== 'undefined') {
-  (window as unknown as { PIXI: typeof PIXI }).PIXI = PIXI;
-  try {
-    Live2DModel.registerTicker(PIXI.Ticker as any);
-  } catch {
-    // already registered
-  }
-}
 
 interface Props {
   modelPath?: string;
@@ -34,8 +24,8 @@ export function Live2DCanvas({ modelPath, scale = 1.0, mouthOpen, offsetX = 0, o
   const c=useCopy();
   const copyRef=useRef(c); copyRef.current=c;
   const containerRef = useRef<HTMLDivElement>(null);
-  const appRef = useRef<PIXI.Application | null>(null);
-  const modelRef = useRef<any>(null);
+  const appRef = useRef<Application | null>(null);
+  const modelRef = useRef<Live2DModelInstance | null>(null);
   const naturalSize = useRef({ width: 1, height: 1 });
   const layoutRef = useRef({ scale, offsetX, offsetY });
   layoutRef.current = { scale, offsetX, offsetY };
@@ -75,7 +65,7 @@ export function Live2DCanvas({ modelPath, scale = 1.0, mouthOpen, offsetX = 0, o
     const model = modelRef.current;
     if (!model?.internalModel?.coreModel) return;
     try {
-      const core = model.internalModel.coreModel;
+      const core = model.internalModel.coreModel as any;
       const paramIndex = core.getParameterIndex?.('ParamMouthOpenY') ?? -1;
       if (paramIndex >= 0) {
         core.setParameterValueByIndex?.(paramIndex, Math.max(0, Math.min(1, mouthOpen)));
@@ -102,46 +92,6 @@ export function Live2DCanvas({ modelPath, scale = 1.0, mouthOpen, offsetX = 0, o
     setError(null);
     onStateRef.current?.('loading');
 
-    const app = new PIXI.Application({
-      backgroundAlpha: 0,
-      resizeTo: containerRef.current,
-      autoDensity: true,
-      resolution: window.devicePixelRatio || 1,
-      preserveDrawingBuffer: true,
-      powerPreference: 'high-performance',
-    });
-    appRef.current = app;
-    containerRef.current.appendChild(app.view as HTMLCanvasElement);
-
-    const url = getModelAssetUrl(modelPath);
-
-    Live2DModel.from(url, { autoInteract: false })
-      .then((model: any) => {
-        if (destroyed) {
-          model.destroy();
-          return;
-        }
-        modelRef.current = model;
-        naturalSize.current = { width: model.width, height: model.height };
-        app.stage.addChild(model);
-        // Motion evaluation can overwrite mouth values; write after its update.
-        model.internalModel?.on?.('beforeModelUpdate', () => {
-          model.internalModel.coreModel?.setParameterValueById?.('ParamMouthOpenY', Math.max(0, Math.min(1, mouthRef.current)));
-        });
-
-        updateLayout();
-        setLoading(false);
-        onStateRef.current?.('loaded');
-      })
-      .catch((err: Error) => {
-        if (!destroyed) {
-          console.error('[Live2D] Ошибка загрузки модели:', err);
-          setError(copyRef.current('Не удалось загрузить Live2D модель: ','Could not load the Live2D model: ')+(err.message || String(err)));
-          setLoading(false);
-          onStateRef.current?.('error', err.message || String(err));
-        }
-      });
-
     // Window / container resize observer
     const handleResize = () => updateLayout();
     window.addEventListener('resize', handleResize);
@@ -151,6 +101,56 @@ export function Live2DCanvas({ modelPath, scale = 1.0, mouthOpen, offsetX = 0, o
       resizeObserver = new ResizeObserver(() => updateLayout());
       resizeObserver.observe(containerRef.current);
     }
+
+    // PIXI and the Live2D runtime are loaded only when a model is actually used.
+    void (async () => {
+      try {
+        const [pixi, live2d] = await Promise.all([
+          import('pixi.js'),
+          import('pixi-live2d-display/cubism4'),
+        ]);
+        if (destroyed || !containerRef.current) return;
+
+        (window as unknown as { PIXI: typeof pixi }).PIXI = pixi;
+        try { live2d.Live2DModel.registerTicker(pixi.Ticker as never); } catch { /* already registered */ }
+
+        const app = new pixi.Application({
+          backgroundAlpha: 0,
+          resizeTo: containerRef.current,
+          autoDensity: true,
+          resolution: window.devicePixelRatio || 1,
+          preserveDrawingBuffer: true,
+          powerPreference: 'high-performance',
+        });
+        appRef.current = app;
+        containerRef.current.appendChild(app.view as HTMLCanvasElement);
+
+        const model = await live2d.Live2DModel.from(getModelAssetUrl(modelPath), { autoInteract: false });
+        if (destroyed) {
+          model.destroy();
+          return;
+        }
+        modelRef.current = model;
+        naturalSize.current = { width: model.width, height: model.height };
+        app.stage.addChild(model);
+        // Motion evaluation can overwrite mouth values; write after its update.
+        model.internalModel?.on?.('beforeModelUpdate', () => {
+          (model.internalModel.coreModel as any)?.setParameterValueById?.('ParamMouthOpenY', Math.max(0, Math.min(1, mouthRef.current)));
+        });
+
+        updateLayout();
+        setLoading(false);
+        onStateRef.current?.('loaded');
+      } catch (err) {
+        if (!destroyed) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          console.error('[Live2D] Ошибка загрузки модели:', error);
+          setError(copyRef.current('Не удалось загрузить Live2D модель: ','Could not load the Live2D model: ')+(error.message || String(error)));
+          setLoading(false);
+          onStateRef.current?.('error', error.message || String(error));
+        }
+      }
+    })();
 
     return () => {
       destroyed = true;

@@ -4,17 +4,23 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 if (!app.requestSingleInstanceLock()) app.exit(0);
 app.on('second-instance', () => {
-  const existing = BrowserWindow.getAllWindows()[0];
-  if (existing) { if (existing.isMinimized()) existing.restore(); existing.focus(); }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    return;
+  }
+  if (app.isReady()) createWindow();
 });
 const secrets = require('./secrets.cjs');
 const { randomBytes } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const sessionToken = randomBytes(32).toString('hex');
-const secretKeys = new Set(['twitchOauthToken', 'llmApiKey', 'openaiTtsApiKey', 'elevenlabsApiKey']);
+const secretKeys = new Set(['twitchOauthToken', 'llmApiKey', 'openaiTtsApiKey', 'elevenlabsApiKey', 'vtsAuthToken']);
 let serverUrl = '';
 let quitting = false;
 let restarting = false;
+let mainWindow = null;
+let avatarWindow = null;
 const watchers = [];
 let reloadTimer;
 
@@ -32,10 +38,12 @@ async function startServer() {
   const values = secrets.initialize({
     twitchOauthToken: process.env.TWITCH_OAUTH_TOKEN, llmApiKey: process.env.LLM_API_KEY,
     openaiTtsApiKey: process.env.OPENAI_TTS_API_KEY, elevenlabsApiKey: process.env.ELEVENLABS_API_KEY,
+    vtsAuthToken: process.env.VTS_AUTH_TOKEN,
   });
   const env = {
     ...process.env, TWITCH_OAUTH_TOKEN: values.twitchOauthToken, LLM_API_KEY: values.llmApiKey,
     OPENAI_TTS_API_KEY: values.openaiTtsApiKey, ELEVENLABS_API_KEY: values.elevenlabsApiKey,
+    VTS_AUTH_TOKEN: values.vtsAuthToken,
     ELECTRON_USER_DATA: development ? path.join(__dirname, '..', '..', 'data') : app.getPath('userData'), APP_SESSION_TOKEN: sessionToken,
     PORT: development ? '3001' : '0', RENDERER_ROOT: development ? '' : rendererRoot,
     VITE_DEV_ORIGIN: development ? new URL(process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173').origin : '',
@@ -116,7 +124,9 @@ function protectWindow(window) {
     if(choice===1) event.preventDefault();
   });
   const allowed = isDevMode() ? new URL(process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173').origin : serverUrl;
-  window.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== allowed) event.preventDefault(); });
+  const guard = (event, url) => { try { if (new URL(url).origin !== allowed) event.preventDefault(); } catch { event.preventDefault(); } };
+  window.webContents.on('will-navigate', guard);
+  window.webContents.on('will-redirect', guard);
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 }
 
@@ -130,8 +140,15 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
       preload: path.join(__dirname, 'preload.cjs'),
     },
+  });
+  mainWindow = window;
+  window.on('closed', () => {
+    if (mainWindow !== window) return;
+    mainWindow = null;
+    if (avatarWindow && !avatarWindow.isDestroyed()) avatarWindow.close();
   });
   protectWindow(window);
   window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
@@ -165,10 +182,16 @@ function registerIpc() {
         webPreferences: {
           nodeIntegration: false,
           contextIsolation: true,
+          sandbox: true,
         },
       });
+      authWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
-      const authUrl = 'https://id.twitch.tv/oauth2/authorize?client_id=q6batx0epp608jehkipdgrm6cfhgah&redirect_uri=https://twitchapps.com/tmi/&response_type=token&scope=chat:read+chat:edit';
+      // Override these with your own registered Twitch application when
+      // distributing a build. The default is the public TwitchApps TMI client.
+      const clientId = process.env.TWITCH_CLIENT_ID || 'q6batx0epp608jehkipdgrm6cfhgah';
+      const redirectUri = process.env.TWITCH_REDIRECT_URI || 'https://twitchapps.com/tmi/';
+      const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=chat:read`;
       let resolved = false;
 
       const handleCallback = async (rawUrl) => {
@@ -191,6 +214,7 @@ function registerIpc() {
           try {
             const validateRes = await fetch('https://id.twitch.tv/oauth2/validate', {
               headers: { Authorization: `OAuth ${accessToken}` },
+              signal: AbortSignal.timeout(10_000),
             });
             if (validateRes.ok) {
               const data = await validateRes.json();
@@ -213,13 +237,20 @@ function registerIpc() {
         }
       };
 
-      authWindow.webContents.on('will-navigate', (_event, url) => {
+      authWindow.webContents.on('will-navigate', (event, url) => {
+        if (!url.includes('access_token=')) return;
+        // The token is in the URL fragment. Never let a third-party redirect
+        // page execute JavaScript with it before the window closes.
+        event.preventDefault();
         void handleCallback(url);
       });
-      authWindow.webContents.on('will-redirect', (_event, url) => {
+      authWindow.webContents.on('will-redirect', (event, url) => {
+        if (!url.includes('access_token=')) return;
+        event.preventDefault();
         void handleCallback(url);
       });
       authWindow.webContents.on('did-navigate', (_event, url) => {
+        // Fallback for unusual navigations that did not emit a cancellable event.
         void handleCallback(url);
       });
 
@@ -232,8 +263,6 @@ function registerIpc() {
       void authWindow.loadURL(authUrl);
     });
   });
-
-  let avatarWindow = null;
 
   handle('avatar:open-window', () => {
     if (avatarWindow && !avatarWindow.isDestroyed()) {
@@ -253,6 +282,8 @@ function registerIpc() {
       webPreferences: {
         contextIsolation: true,
         sandbox: true,
+        nodeIntegration: false,
+        backgroundThrottling: false,
         preload: path.join(__dirname, 'preload.cjs'),
       },
     });
@@ -365,12 +396,13 @@ function registerIpc() {
 }
 
 app.whenReady().then(async () => {
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   await startServer();
   registerIpc();
   createWindow();
   watchBackend();
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
   });
 }).catch(async error => {
   quitting = true;

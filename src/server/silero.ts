@@ -16,6 +16,21 @@ interface OwnedProcess {
   termination?: Promise<boolean>;
 }
 
+/** The Python process only needs runtime plumbing, never application credentials. */
+export function sileroEnvironment(port: number): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { SILERO_PORT: String(port) };
+  for (const key of [
+    'PATH', 'Path', 'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'TEMP', 'TMP',
+    'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'LOCALAPPDATA', 'APPDATA', 'PROGRAMDATA',
+    'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'CUDA_VISIBLE_DEVICES', 'CUDA_PATH',
+    'HF_HOME', 'TORCH_HOME', 'PYTHONPATH', 'PYTHONIOENCODING', 'PYTHONUTF8',
+  ]) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
+}
+
 function portAvailable(port: number): Promise<boolean> {
   return new Promise((resolve, reject) => {
     const probe = createServer();
@@ -133,7 +148,7 @@ export function registerSileroRoutes(
     log('info', 'Запуск Silero TTS сервера...');
     const child = spawn('python', [script], {
       cwd: path.dirname(script),
-      env: { ...process.env, SILERO_PORT: String(port) },
+      env: sileroEnvironment(port),
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: false,
       windowsHide: true,
@@ -153,7 +168,12 @@ export function registerSileroRoutes(
         for (const line of data.toString().split('\n').filter(Boolean)) log('info', line.trim());
       });
     }
-    for (let i = 0; i < 40; i++) {
+    // The first run may install PyTorch and download the model before the HTTP
+    // server starts listening. Keep this configurable for slow machines/networks.
+    const configuredTimeout = Number(process.env.SILERO_START_TIMEOUT_MS);
+    const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 15 * 60_000;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
       if (epoch !== generation) return { code: 409, body: { ok: false, error: 'Запуск Silero отменён.' } };
       if (current.exited) return { code: 500, body: { ok: false, error: 'Процесс Silero завершился до готовности.' } };
       const ready = await status(target);
@@ -162,10 +182,12 @@ export function registerSileroRoutes(
         log('info', `Silero готов к работе на ${ready.gpu ? 'GPU (CUDA)' : 'CPU'}.`);
         return { code: 200, body: { ok: true, ...ready } };
       }
-      await Promise.race([current.exit, new Promise<void>((resolve) => setTimeout(resolve, 1000))]);
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await Promise.race([current.exit, new Promise<void>((resolve) => setTimeout(resolve, Math.min(1000, remaining)))]);
     }
     await terminate(current);
-    return { code: 504, body: { ok: false, error: 'Таймаут ожидания запуска Silero сервера.' } };
+    return { code: 504, body: { ok: false, error: 'Таймаут ожидания запуска Silero сервера. Проверьте консоль и повторите запуск.' } };
   }
 
   app.get('/api/tts/silero/status', async () => status());

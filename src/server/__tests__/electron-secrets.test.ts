@@ -8,7 +8,7 @@ import vm from 'node:vm';
 const require = createRequire(import.meta.url);
 const source = fs.readFileSync(new URL('../../electron/secrets.cjs', import.meta.url), 'utf8');
 const roots: string[] = [];
-const keys = ['twitchOauthToken', 'llmApiKey', 'openaiTtsApiKey', 'elevenlabsApiKey'];
+const keys = ['twitchOauthToken', 'llmApiKey', 'openaiTtsApiKey', 'elevenlabsApiKey', 'vtsAuthToken'];
 
 function vault(options: { available?: boolean; corruptVerification?: boolean; renameFailure?: boolean } = {}) {
   const root = fs.mkdtempSync(path.join(tmpdir(), 'vtuber-vault-test-'));
@@ -103,7 +103,7 @@ describe('Electron protected vault', () => {
     const v = vault();
     fs.writeFileSync(v.file, JSON.stringify({ llmApiKey: 'legacy-key', twitchOauthToken: 'legacy-oauth' }));
     const result = v.api.initialize({ llmApiKey: 'env-must-not-overwrite', openaiTtsApiKey: 'env-tts' });
-    expect(result).toEqual({ llmApiKey: 'legacy-key', twitchOauthToken: 'legacy-oauth', openaiTtsApiKey: 'env-tts', elevenlabsApiKey: '' });
+    expect(result).toEqual({ llmApiKey: 'legacy-key', twitchOauthToken: 'legacy-oauth', openaiTtsApiKey: 'env-tts', elevenlabsApiKey: '', vtsAuthToken: '' });
     expect(fs.readFileSync(v.file, 'utf8')).toMatch(/^ENCRYPTED:/);
     expect(v.api.all()).toEqual(result);
   });
@@ -120,7 +120,7 @@ describe('Electron protected vault', () => {
     const v = vault();
     v.api.update({ llmApiKey: '', twitchOauthToken: 'existing' });
     v.api.update({ llmApiKey: 'old-db-key', twitchOauthToken: 'old-db-token', openaiTtsApiKey: 'db-tts' }, true);
-    expect(v.api.initialize({ llmApiKey: 'old-env-key' })).toEqual({ llmApiKey: '', twitchOauthToken: 'existing', openaiTtsApiKey: 'db-tts', elevenlabsApiKey: '' });
+    expect(v.api.initialize({ llmApiKey: 'old-env-key' })).toEqual({ llmApiKey: '', twitchOauthToken: 'existing', openaiTtsApiKey: 'db-tts', elevenlabsApiKey: '', vtsAuthToken: '' });
   });
 
   it('rejects unknown keys and non-string values without touching the original vault', () => {

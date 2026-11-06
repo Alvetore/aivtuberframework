@@ -16,15 +16,18 @@ class SileroAudioPlayer {
   private raf = 0;
   private lastValue = 0;
   private generation = 0;
+  private lastSinkId = '';
 
   constructor(private publisher: LipSyncPublisher, private warn: (message: string) => void) {}
 
   private initGraph(outputDeviceId: string) {
-    if (this.ctx && this.audio) return;
+    if (this.audio) return;
     this.audio = new Audio();
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (AudioCtx) {
       try {
+        // Keep one AudioContext for the whole session; repeated contexts hit
+        // Chromium's hardware-context limit during long TTS queues.
         this.ctx = new AudioCtx();
         // A media source connected to Web Audio uses the context's destination.
         // Keep the element route when only the element supports output selection.
@@ -51,14 +54,18 @@ class SileroAudioPlayer {
       return;
     }
     this.audio.volume = Math.max(0, Math.min(1, payload.volume ?? 1));
+    const desiredSink = payload.outputDeviceId || '';
     const sink = this.ctx?.setSinkId ? this.ctx : typeof this.audio.setSinkId === 'function' ? this.audio : undefined;
-    if (payload.outputDeviceId) {
-      if (!sink) this.warn('Выбор аудиовыхода недоступен: используется системное устройство.');
-      else {
-        try { await sink.setSinkId!(payload.outputDeviceId); }
-        catch {
+    if (desiredSink || this.lastSinkId) {
+      if (!sink) {
+        if (desiredSink) this.warn('Выбор аудиовыхода недоступен: используется системное устройство.');
+      } else {
+        try {
+          await sink.setSinkId!(desiredSink);
+          this.lastSinkId = desiredSink;
+        } catch {
           if (generation !== this.generation) return;
-          try { await sink.setSinkId!(''); }
+          try { await sink.setSinkId!(''); this.lastSinkId = ''; }
           catch { onError('Аудиовыход недоступен. Выберите системное устройство.'); return; }
           this.warn('Выбранный аудиовыход недоступен: используется системное устройство.');
         }
@@ -103,10 +110,17 @@ class SileroAudioPlayer {
       try { this.audio.pause(); } catch { /* noop */ }
       this.audio.removeAttribute('src');
     }
-    if (this.ctx) { try { void this.ctx.close(); } catch { /* noop */ } }
-    this.ctx = undefined; this.audio = undefined; this.analyser = undefined;
     this.lastValue = 0;
     this.publisher.send({ type: 'lipsync', payload: { value: 0 } });
+  }
+
+  dispose() {
+    this.stop();
+    if (this.ctx) { try { void this.ctx.close(); } catch { /* noop */ } }
+    this.ctx = undefined;
+    this.audio = undefined;
+    this.analyser = undefined;
+    this.lastSinkId = '';
   }
 
   private lastEmitTime = 0;
@@ -219,6 +233,12 @@ export class TtsClient {
       try { window.speechSynthesis.cancel(); } catch { /* noop */ }
     }
     this.publisher.send({ type: 'tts_done', payload: { text: current.text, id: current.id } });
+  }
+
+  dispose() {
+    this.cancel();
+    this.sileroPlayer.dispose();
+    this.webSpeechLipSync.stop();
   }
 
   private warn(message: string) { this.options.onWarning?.(message); this.publisher.send({ type: 'player_warning', payload: { message } }); }

@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { app, safeStorage } = require('electron');
-const keys = ['twitchOauthToken', 'llmApiKey', 'openaiTtsApiKey', 'elevenlabsApiKey'];
+const keys = ['twitchOauthToken', 'llmApiKey', 'openaiTtsApiKey', 'elevenlabsApiKey', 'vtsAuthToken'];
 const file = path.join(app.getPath('userData'), 'secrets.bin');
 
 function validate(data) {

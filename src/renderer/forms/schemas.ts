@@ -12,17 +12,17 @@ export const LlmFormSchema = z.object({
   llmEndpoint: z.string().url('Некорректный URL endpoint'),
   llmApiKey: z.string(),
   llmModel: z.string().min(1, 'Модель обязательна'),
-  temperature: z.coerce.number().min(0).max(2),
-  maxTokens: z.coerce.number().int().min(1).max(8192),
+  temperature: z.number().min(0).max(2),
+  maxTokens: z.number().int().min(1).max(8192),
 });
 export type LlmFormData = z.infer<typeof LlmFormSchema>;
 
 export const BehaviorFormSchema = z.object({
   mode: z.enum(['reactive', 'streamer']),
-  contextMessageLimit: z.coerce.number().int().min(1).max(200),
-  idleTimeoutSeconds: z.coerce.number().int().min(5).max(3600),
-  responseCooldownSeconds: z.coerce.number().int().min(0).max(300),
-  maxResponsesPerMinute: z.coerce.number().int().min(1).max(60),
+  contextMessageLimit: z.number().int().min(1).max(200),
+  idleTimeoutSeconds: z.number().int().min(5).max(3600),
+  responseCooldownSeconds: z.number().int().min(0).max(300),
+  maxResponsesPerMinute: z.number().int().min(1).max(60),
 });
 export type BehaviorFormData = z.infer<typeof BehaviorFormSchema>;
 
@@ -37,12 +37,12 @@ export const TtsFormSchema = z.object({
   ttsEnabled: z.boolean(),
   ttsVoice: z.string(),
   ttsLanguage: z.string().max(35),
-  ttsVolume: z.coerce.number().min(0).max(1),
+  ttsVolume: z.number().min(0).max(1),
   audioOutputDeviceId: z.string(),
   ttsEngine: z.enum(['webspeech', 'silero', 'openai', 'elevenlabs']),
   sileroEndpoint: z.string(),
   sileroSpeaker: z.string(),
-  sileroSampleRate: z.coerce.number().int().min(8000).max(96000),
+  sileroSampleRate: z.number().int().min(8000).max(96000),
   openaiTtsEndpoint: z.string().optional(),
   openaiTtsApiKey: z.string().optional(),
   openaiTtsModel: z.string().optional(),
@@ -57,9 +57,9 @@ export const AvatarFormSchema = z.object({
   avatarMode: z.enum(['disabled', 'internal', 'vtube-studio']),
   vtubeStudioUrl: z.string(),
   live2dModelPath: z.string().optional(),
-  live2dScale: z.coerce.number().min(0.1).max(10).optional(),
-  live2dOffsetX: z.coerce.number().min(-100).max(100),
-  live2dOffsetY: z.coerce.number().min(-100).max(100),
+  live2dScale: z.number().min(0.1).max(10).optional(),
+  live2dOffsetX: z.number().min(-100).max(100),
+  live2dOffsetY: z.number().min(-100).max(100),
   overlayClean: z.boolean(),
   avatarBackground: z.enum(['transparent', 'chroma-green', 'chroma-blue', 'chroma-magenta']).optional(),
 });

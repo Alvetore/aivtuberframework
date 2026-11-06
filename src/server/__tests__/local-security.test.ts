@@ -18,6 +18,7 @@ describe('local server access and files', () => {
   let host: string;
   let origin: string;
   let modelDirectory: string;
+  let modelPath: string;
   let connections: number;
   let sockets: Set<Socket>;
 
@@ -28,7 +29,8 @@ describe('local server access and files', () => {
     await mkdir(path.join(directory, 'models-other'));
     await mkdir(path.join(modelDirectory, 'textures'));
     await mkdir(path.join(modelDirectory, 'motions'));
-    await writeFile(path.join(modelDirectory, 'review.model3.json'), '{"Version":3}');
+    modelPath = path.join(modelDirectory, 'review.model3.json');
+    await writeFile(modelPath, '{"Version":3}');
     await writeFile(path.join(modelDirectory, 'textures', 'review image.png'), 'review-texture');
     await writeFile(path.join(modelDirectory, 'private.txt'), 'not-a-model-asset');
     await writeFile(path.join(directory, 'models-other', 'private.json'), 'outside-root');
@@ -50,7 +52,7 @@ describe('local server access and files', () => {
       connections++;
       socket.send(JSON.stringify({ type: 'status', payload: { ok: true } }));
     });
-    registerLocalFiles(app, undefined, () => path.join(modelDirectory, 'review.model3.json'));
+    registerLocalFiles(app, undefined, () => modelPath);
     const address = await app.listen({ host: '127.0.0.1', port: 0 });
     origin = address;
     host = new URL(address).host;
@@ -141,6 +143,15 @@ describe('local server access and files', () => {
     expect(texture.statusCode).toBe(200);
     expect(texture.body).toBe('review-texture');
     expect((await get('/api/avatar/model/review.model3.json', { cookie: '' })).statusCode).toBe(401);
+  });
+
+  it('requires a real model config file and refuses a drive-root asset root', async () => {
+    const notModel = path.join(directory, 'not-a-model.json');
+    await writeFile(notModel, '{"not":"a model"}');
+    modelPath = notModel;
+    expect((await get('/api/avatar/model/not-a-model.json')).statusCode).toBe(404);
+    modelPath = path.join(path.parse(directory).root, 'review.model3.json');
+    expect((await get('/api/avatar/model/review.model3.json')).statusCode).toBe(403);
   });
 
   it('has no legacy arbitrary-directory asset route and denies non-model files', async () => {

@@ -113,6 +113,27 @@ describe('TTS renderer cancellation', () => {
     expect(play).not.toHaveBeenCalled();expect(t.done()).toHaveLength(1);
   });
 
+  it('reuses one AudioContext across consecutive audio replies and closes it on dispose', async () => {
+    const t = speechSetup();
+    let contexts = 0;
+    let closed = 0;
+    (window as any).AudioContext = class {
+      state = 'running'; destination = {};
+      constructor() { contexts++; }
+      createAnalyser() { return { frequencyBinCount: 2, connect() {}, getByteFrequencyData() {} }; }
+      createMediaElementSource() { return { connect() {} }; }
+      close() { closed++; return Promise.resolve(); }
+    };
+    vi.stubGlobal('Audio', class { volume = 1; play() { return Promise.resolve(); } pause() {} removeAttribute() {} });
+    t.client.speak({ id: 'one', text: 'one', engine: 'silero', audio: 'AA==' });
+    await Promise.resolve(); await Promise.resolve();
+    t.client.speak({ id: 'two', text: 'two', engine: 'silero', audio: 'AA==' });
+    await Promise.resolve(); await Promise.resolve();
+    expect(contexts).toBe(1);
+    t.client.dispose();
+    expect(closed).toBe(1);
+  });
+
   it('routes through the AudioContext output when audio is connected to Web Audio', async () => {
     const t=speechSetup();const contextSinks:string[]=[];const elementSink=vi.fn(async()=>{});
     vi.stubGlobal('Audio',class {setSinkId=elementSink;play(){return Promise.resolve();}pause(){}removeAttribute(){}});

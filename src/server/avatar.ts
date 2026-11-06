@@ -19,7 +19,7 @@ export class DisabledAvatarProvider implements AvatarProvider {
 
 export interface VtsAuthStorage {
   getToken(): string;
-  setToken(token: string): void;
+  setToken(token: string): Promise<void> | void;
 }
 
 export class VTubeStudioProvider implements AvatarProvider {
@@ -28,6 +28,8 @@ export class VTubeStudioProvider implements AvatarProvider {
   private authenticated = false;
   private reconnectTimer?: NodeJS.Timeout;
   private intentionalClose = false;
+  private connecting?: Promise<void>;
+  private connectionEpoch = 0;
   private pendingRequests = new Map<string, (resp: any) => void>();
 
   constructor(
@@ -40,10 +42,35 @@ export class VTubeStudioProvider implements AvatarProvider {
     return this.connected && this.authenticated;
   }
 
+  private closeSocket() {
+    const socket = this.socket;
+    this.socket = undefined;
+    this.connected = false;
+    this.authenticated = false;
+    if (socket) {
+      socket.removeAllListeners();
+      try { socket.close(); } catch { /* ignore */ }
+    }
+  }
+
   async connect(): Promise<void> {
+    // Coalesce concurrent UI/API connect requests and ignore callbacks from a
+    // superseded connection attempt.
+    if (this.connecting) return this.connecting;
+    const epoch = ++this.connectionEpoch;
+    this.connecting = this.openConnection(epoch).finally(() => {
+      if (this.connectionEpoch === epoch) this.connecting = undefined;
+    });
+    return this.connecting;
+  }
+
+  private openConnection(epoch: number): Promise<void> {
     this.intentionalClose = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
+    const wasConnected = this.connected;
+    this.closeSocket();
+    if (wasConnected) this.bus.emit('AVATAR_DISCONNECTED', undefined);
 
     return new Promise<void>((resolve) => {
       try {
@@ -54,9 +81,13 @@ export class VTubeStudioProvider implements AvatarProvider {
         return resolve();
       }
 
+      const socket = this.socket;
       const openTimeout = setTimeout(() => {
+        if (epoch !== this.connectionEpoch) { resolve(); return; }
         if (!this.connected) {
-          this.disconnect();
+          // Do not call disconnect() here: it marks the close as intentional
+          // and would permanently suppress reconnection after a silent timeout.
+          this.closeSocket();
           this.bus.emit('LOG', {
             level: 'error',
             source: 'Avatar.VTS',
@@ -68,13 +99,16 @@ export class VTubeStudioProvider implements AvatarProvider {
       }, 4000);
 
       this.socket.on('open', () => {
+        if (epoch !== this.connectionEpoch) { resolve(); return; }
         clearTimeout(openTimeout);
         this.connected = true;
         this.bus.emit('LOG', { level: 'info', source: 'Avatar.VTS', message: 'WebSocket соединен с VTube Studio. Проверка авторизации...' });
-        this.handshake()
+        this.handshake(epoch)
           .then(resolve)
           .catch((err) => {
+            if (epoch !== this.connectionEpoch) { resolve(); return; }
             this.bus.emit('LOG', { level: 'error', source: 'Avatar.VTS', message: `Ошибка авторизации VTS: ${String(err)}` });
+            if (this.socket === socket) this.closeSocket();
             resolve();
           });
       });
@@ -89,8 +123,10 @@ export class VTubeStudioProvider implements AvatarProvider {
       });
 
       this.socket.on('close', () => {
+        if (epoch !== this.connectionEpoch || this.socket !== socket) return;
         clearTimeout(openTimeout);
         const wasConn = this.connected;
+        this.socket = undefined;
         this.connected = false;
         this.authenticated = false;
         if (wasConn) {
@@ -110,15 +146,11 @@ export class VTubeStudioProvider implements AvatarProvider {
 
   disconnect() {
     this.intentionalClose = true;
+    this.connectionEpoch++;
+    this.connecting = undefined;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
-    if (this.socket) {
-      this.socket.removeAllListeners();
-      this.socket.close();
-      this.socket = undefined;
-    }
-    this.connected = false;
-    this.authenticated = false;
+    this.closeSocket();
     this.bus.emit('AVATAR_DISCONNECTED', undefined);
   }
 
@@ -168,8 +200,10 @@ export class VTubeStudioProvider implements AvatarProvider {
     }
   }
 
-  private async handshake(): Promise<void> {
+  private async handshake(epoch: number): Promise<void> {
+    const superseded = () => epoch !== this.connectionEpoch;
     const state = await this.request('APIStateRequest');
+    if (superseded()) throw new Error('Соединение VTS заменено.');
     if (!state?.active) {
       throw new Error('VTS API не активен в настройках VTube Studio.');
     }
@@ -185,9 +219,11 @@ export class VTubeStudioProvider implements AvatarProvider {
         pluginName: 'AI VTuber Framework Lite',
         pluginDeveloper: 'AIVTuberFramework',
       });
+      if (superseded()) throw new Error('Соединение VTS заменено.');
       token = tokenResp?.authenticationToken ?? '';
       if (!token) throw new Error('Токен авторизации не был получен.');
-      this.storage?.setToken(token);
+      await this.storage?.setToken(token);
+      if (superseded()) throw new Error('Соединение VTS заменено.');
     }
 
     const authResp = await this.request('AuthenticationRequest', {
@@ -195,6 +231,7 @@ export class VTubeStudioProvider implements AvatarProvider {
       pluginDeveloper: 'AIVTuberFramework',
       authenticationToken: token,
     });
+    if (superseded()) throw new Error('Соединение VTS заменено.');
 
     if (authResp?.authenticated) {
       this.authenticated = true;
@@ -205,7 +242,7 @@ export class VTubeStudioProvider implements AvatarProvider {
         message: '✓ VTube Studio успешно подключена и авторизована! LipSync активен.',
       });
     } else {
-      this.storage?.setToken('');
+      await this.storage?.setToken('');
       throw new Error(`Авторизация отклонена: ${authResp?.reason ?? 'токен отозван'}`);
     }
   }

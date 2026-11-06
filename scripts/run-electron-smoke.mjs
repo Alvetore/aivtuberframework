@@ -14,7 +14,12 @@ if (development && packaged) throw new Error('Choose either --dev or --packaged.
 const profile = mkdtempSync(path.join(tmpdir(), 'vtuber-electron-smoke-'));
 let buildDirectory;
 let vite;
-const nativeFile = path.join(root, 'node_modules/better-sqlite3/build/Release/better_sqlite3.node');
+const nativeCandidates = [
+  path.join(root, 'node_modules/better-sqlite3/build/Release/better_sqlite3.node'),
+  path.join(root, 'node_modules/better-sqlite3/prebuilds', `${process.platform}-${process.arch}.node`),
+];
+const nativeFile = nativeCandidates.find(existsSync);
+if (!nativeFile) throw new Error('better-sqlite3 native binary was not found.');
 const nativeMetadata = path.join(path.dirname(nativeFile), '.forge-meta');
 let originalNative;
 let nativeNeedsRestore = false;

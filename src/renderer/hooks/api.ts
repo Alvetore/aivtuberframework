@@ -7,17 +7,18 @@ export class ApiError extends Error {
 
 export async function api<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const controller = new AbortController();
-  const timer = init?.timeoutMs ? setTimeout(() => controller.abort(), init.timeoutMs) : null;
+  const { timeoutMs, ...requestInit } = init ?? {};
+  const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
     const headers: Record<string, string> = {};
-    if (init?.body) {
+    if (requestInit.body) {
       headers['Content-Type'] = 'application/json';
     }
-    if (init?.headers) {
-      Object.assign(headers, init.headers);
+    if (requestInit.headers) {
+      Object.assign(headers, requestInit.headers);
     }
     const response = await fetch(`${BASE}${path}`, {
-      ...init,
+      ...requestInit,
       signal: controller.signal,
       headers,
     });

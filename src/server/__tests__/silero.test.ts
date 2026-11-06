@@ -5,7 +5,7 @@ import type { ChildProcess } from 'node:child_process';
 import { execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { EventBus } from '../event-bus.js';
-import { registerSileroRoutes } from '../silero.js';
+import { registerSileroRoutes, sileroEnvironment } from '../silero.js';
 import { defaultSettings } from '../../shared/types.js';
 
 vi.mock('node:child_process', () => ({ spawn: vi.fn(), execFile: vi.fn() }));
@@ -62,6 +62,29 @@ describe('Silero process ownership', () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     Object.defineProperty(process, 'platform', { value: actualPlatform });
+  });
+
+  it('passes only runtime environment variables to Python', () => {
+    const previous = {
+      LLM_API_KEY: process.env.LLM_API_KEY,
+      APP_SESSION_TOKEN: process.env.APP_SESSION_TOKEN,
+      TWITCH_OAUTH_TOKEN: process.env.TWITCH_OAUTH_TOKEN,
+    };
+    process.env.LLM_API_KEY = 'must-not-leak';
+    process.env.APP_SESSION_TOKEN = 'must-not-leak-either';
+    process.env.TWITCH_OAUTH_TOKEN = 'must-not-leak-twitch';
+    try {
+      const env = sileroEnvironment(5000);
+      expect(env.SILERO_PORT).toBe('5000');
+      expect(env.LLM_API_KEY).toBeUndefined();
+      expect(env.APP_SESSION_TOKEN).toBeUndefined();
+      expect(env.TWITCH_OAUTH_TOKEN).toBeUndefined();
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 
   it('reports an occupied port without spawning or terminating any process', async () => {

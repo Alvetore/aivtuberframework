@@ -59,21 +59,14 @@ except Exception as e:
 SPEAKERS = ['xenia', 'baya', 'kseniya', 'eugene', 'aidar', 'random']
 
 class SileroHandler(BaseHTTPRequestHandler):
-    def _set_cors_headers(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-
     def do_OPTIONS(self):
-        self.send_response(200)
-        self._set_cors_headers()
+        self.send_response(405)
         self.end_headers()
 
     def do_GET(self):
         if self.path in ['/health', '/']:
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
-            self._set_cors_headers()
             self.end_headers()
             res = {
                 'status': 'ok',
@@ -81,18 +74,6 @@ class SileroHandler(BaseHTTPRequestHandler):
                 'speakers': SPEAKERS
             }
             self.wfile.write(json.dumps(res).encode('utf-8'))
-        elif self.path == '/shutdown':
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self._set_cors_headers()
-            self.end_headers()
-            self.wfile.write(json.dumps({'ok': True, 'message': 'Shutting down'}).encode('utf-8'))
-            import threading
-            def _exit():
-                import time
-                time.sleep(0.3)
-                os._exit(0)
-            threading.Thread(target=_exit, daemon=True).start()
         else:
             self.send_response(404)
             self.end_headers()
@@ -100,6 +81,10 @@ class SileroHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path.startswith('/synthesize'):
             try:
+                if self.headers.get('Content-Type', '').split(';', 1)[0].strip().lower() != 'application/json':
+                    self.send_response(415)
+                    self.end_headers()
+                    return
                 content_length = int(self.headers.get('Content-Length', 0))
                 body = self.rfile.read(content_length).decode('utf-8')
                 data = json.loads(body)
@@ -139,7 +124,6 @@ class SileroHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-Type', 'audio/wav')
                 self.send_header('Content-Length', str(len(wav_bytes)))
-                self._set_cors_headers()
                 self.end_headers()
                 self.wfile.write(wav_bytes)
 
@@ -147,21 +131,8 @@ class SileroHandler(BaseHTTPRequestHandler):
                 print(f'[silero] Ошибка синтеза: {e}')
                 sys.stdout.flush()
                 self.send_response(500)
-                self._set_cors_headers()
                 self.end_headers()
                 self.wfile.write(str(e).encode('utf-8'))
-        elif self.path == '/shutdown':
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self._set_cors_headers()
-            self.end_headers()
-            self.wfile.write(json.dumps({'ok': True, 'message': 'Shutting down'}).encode('utf-8'))
-            import threading
-            def _exit():
-                import time
-                time.sleep(0.3)
-                os._exit(0)
-            threading.Thread(target=_exit, daemon=True).start()
         else:
             self.send_response(404)
             self.end_headers()

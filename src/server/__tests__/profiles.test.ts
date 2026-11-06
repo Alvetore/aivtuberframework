@@ -20,7 +20,7 @@ function setup(state: RuntimeState['state'] = 'stopped') {
     getSettings: () => defaultSettings,
     exportProfile: vi.fn(() => ({ version: 1, name: first.name, settings: first.settings })),
   };
-  const context = { getRuntime: () => ({ state, muted: false, sessionId: null, profileId: active, cooldownUntil: 0 }), beforeSelect: vi.fn(), applySettings: vi.fn(), publish: vi.fn() };
+  const context = { getRuntime: () => ({ state, muted: false, sessionId: null, profileId: active, cooldownUntil: 0 }), beforeSelect: vi.fn(), applySettings: vi.fn(), publish: vi.fn(), getPublicSettings: () => defaultSettings };
   registerProfileRoutes(app, db as unknown as AppDatabase, context);
   return { app, db, context };
 }

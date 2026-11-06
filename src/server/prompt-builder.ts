@@ -10,11 +10,20 @@ export function sanitizeTags(text: string): string {
   return text.replace(/<\/?(chat|viewer)>/gi, '');
 }
 
+/** Keep each untrusted chat value on exactly one line and disarm tag injection. */
+export function sanitizeChatText(text: string): string {
+  return sanitizeTags(text)
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n/g, '\\n');
+}
+
 export function formatViewer(viewer: unknown): string {
   if (!viewer || typeof viewer !== 'object') return 'новый зритель';
   const v = viewer as { username?: string; message_count?: number; first_seen?: string; last_seen?: string };
   const parts: string[] = [];
-  if (v.username) parts.push(`зритель: ${v.username}`);
+  if (v.username) parts.push(`зритель: ${sanitizeChatText(v.username)}`);
   if (typeof v.message_count === 'number') {
     parts.push(`сообщений: ${v.message_count}`);
     if (v.message_count > 20) parts.push('(постоянный зритель)');
@@ -37,12 +46,12 @@ export function buildMessages(
 ) {
   const chat = context
     .map((m) => {
-      const author = m.isBotResponse ? `[Ведущая ${settings.characterName}]` : `[${sanitizeTags(m.username)}]`;
-      return `${author}: ${sanitizeTags(m.message)}`;
+      const author = m.isBotResponse ? `[Ведущая ${settings.characterName}]` : `[${sanitizeChatText(m.username)}]`;
+      return `${author}: ${sanitizeChatText(m.message)}`;
     })
     .join('\n') || '(чат пока пуст)';
   const viewerInfo = formatViewer(viewer);
-  const cleanMessage = sanitizeTags(message);
+  const cleanMessage = sanitizeChatText(message);
   const langRule = getLanguageInstruction(settings.characterLanguage);
 
   return [

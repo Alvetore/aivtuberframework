@@ -19,7 +19,7 @@ import { registerSileroRoutes } from './silero.js';
 import { VTubeStudioProvider, DisabledAvatarProvider, type AvatarProvider, type VtsAuthStorage } from './avatar.js';
 import type { LogEntry, Settings, Status } from '../shared/types.js';
 import { SettingsPutSchema, TestMessageSchema } from '../shared/schemas.js';
-import { RuntimeCommandSchema, SnapshotSchema, PublicSettingsSchema, QueueSchema, StatusSchema, LogSchema, ProfileSchema, type Snapshot, type ConnectionCheck } from '../shared/product.js';
+import { RuntimeCommandSchema, SnapshotSchema, PublicSettingsSchema, QueueSchema, StatusSchema, LogSchema, ProfileSchema, WorkspacePayloadSchema, ConnectionCheckSchema, type Snapshot, type WorkspacePayload, type ConnectionCheck } from '../shared/product.js';
 import { registerProfileRoutes } from './profiles.js';
 import { registerSettingsMutationGuard } from './settings-mutation.js';
 import { redactSecrets } from './redact.js';
@@ -70,15 +70,8 @@ let connectionRevision=0;
 let settingsMutation=false;
 
 const vtsStorage: VtsAuthStorage = {
-  getToken: () => {
-    const row = db.raw().prepare('SELECT value FROM settings WHERE key=?').get('vts_auth_token') as { value: string } | undefined;
-    if (!row?.value) return '';
-    try { return JSON.parse(row.value); } catch { return ''; }
-  },
-  setToken: (tok) => {
-    db.raw().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
-      .run('vts_auth_token', JSON.stringify(tok));
-  },
+  getToken: () => secrets.get('vtsAuthToken'),
+  setToken: async (token) => { await secrets.update({ vtsAuthToken: token }); },
 };
 
 let avatarProvider: AvatarProvider = settings.avatarMode === 'vtube-studio'
@@ -89,15 +82,17 @@ if (settings.avatarMode === 'vtube-studio') {
   void avatarProvider.connect();
 }
 
-function effectiveSettings(): Settings { return secrets.effective(settings); }
+function effectiveSettings(): Settings & SecretValues { return secrets.effective(settings); }
 function maskedSettings(): Settings { return PublicSettingsSchema.parse(secrets.publicSettings(settings)) as Settings; }
 
-const publish = (type: string, payload: unknown) => {
-  const schema={snapshot:SnapshotSchema,settings:PublicSettingsSchema,status:StatusSchema,queue:QueueSchema,log:LogSchema,profiles:ProfileSchema.array(),response:z.object({text:z.string(),operationId:z.string().optional()}),lipsync:z.object({value:z.number().min(0).max(1)}),tts_speak:z.object({id:z.string(),text:z.string(),engine:z.enum(['webspeech','silero','openai','elevenlabs']),audio:z.string().optional(),mime:z.string().optional(),voice:z.string().optional(),language:z.string().optional(),volume:z.number().optional(),outputDeviceId:z.string().optional()}),tts_cancel:z.object({}),tts_start:z.object({text:z.string(),engine:z.string()}),tts_end:z.object({}),avatar_state:z.object({state:z.enum(['loading','loaded','error']),error:z.string().optional()})}[type];
-  if(schema)payload=schema.parse(payload);
+const publish = (type: string, payload: unknown, validated = false) => {
+  const schema={snapshot:SnapshotSchema,workspace:WorkspacePayloadSchema,checks:ConnectionCheckSchema,settings:PublicSettingsSchema,status:StatusSchema,queue:QueueSchema,log:LogSchema,profiles:ProfileSchema.array(),response:z.object({text:z.string(),operationId:z.string().optional()}),lipsync:z.object({value:z.number().min(0).max(1)}),tts_speak:z.object({id:z.string(),text:z.string(),engine:z.enum(['webspeech','silero','openai','elevenlabs']),audio:z.string().optional(),mime:z.string().optional(),voice:z.string().optional(),language:z.string().optional(),volume:z.number().optional(),outputDeviceId:z.string().optional()}),tts_cancel:z.object({}),tts_start:z.object({text:z.string(),engine:z.string()}),tts_end:z.object({}),avatar_state:z.object({state:z.enum(['loading','loaded','error']),error:z.string().optional()})}[type];
+  if(schema&&!validated)payload=schema.parse(payload);
   const data = JSON.stringify({ type, payload,serverInstanceId,seq:++seq });
   for (const client of clients) {
     if(type==='tts_speak' && client!==player) continue;
+    // The OBS overlay only needs settings/lipsync; keep the large workspace payload for the main window.
+    if(type==='workspace' && client!==player) continue;
     if (client.readyState === 1) client.send(data);
   }
 };
@@ -120,29 +115,33 @@ const status = (): Status => {
 
 const tts = new TtsQueue({ bus, publish, getSettings: () => effectiveSettings(), getStatus: () => status(), onOperation:(...args)=>engine.updateOperation(...args) });
 function snapshot():Snapshot {return SnapshotSchema.parse({serverInstanceId,seq,serverTime:Date.now(),settings:maskedSettings(),status:status(),runtime:engine.state,profiles:db.listProfiles(),feed:db.profileFeed(db.activeProfileId()),operations:db.profileOperations(db.activeProfileId(),100,[engine.activeOperationId,tts.snapshot.operationId]),queue:tts.snapshot,logs,checks:{llm:llmCheck}}) as Snapshot;}
-function publishSnapshot(){publish('snapshot',snapshot());}
+function workspaceState():WorkspacePayload {return {runtime:engine.state,profiles:db.listProfiles(),feed:db.profileFeed(db.activeProfileId()),operations:db.profileOperations(db.activeProfileId(),100,[engine.activeOperationId,tts.snapshot.operationId]),checks:{llm:llmCheck}};}
+let workspaceScheduled=false;
+function scheduleWorkspace(){if(workspaceScheduled)return;workspaceScheduled=true;setImmediate(()=>{workspaceScheduled=false;publish('workspace',workspaceState());});}
+function publishChecks(){publish('checks',llmCheck);}
 
 bus.on('LOG', (entry) => {
   const eff=effectiveSettings();
   const log: LogEntry = { id: crypto.randomUUID(), time: new Date().toISOString(), ...entry,message:redactSecrets(entry.message,secretKeys.map(k=>eff[k])) };
-  if(entry.source==='Conversation'&&entry.level==='error')llmCheck={state:'error',message:log.message};
+  const checksChanged=entry.source==='Conversation'&&entry.level==='error';
+  if(checksChanged)llmCheck={state:'error',message:log.message};
   logs.unshift(log);
   logs.splice(200);
   publish('log', log);
+  if(checksChanged)publishChecks();
 });
 bus.on('LLM_RESPONSE', (response) => {
   llmCheck={state:'response_verified',checkedAt:new Date().toISOString()};
   publish('response', response);
+  publishChecks();
 });
 bus.on('TTS_START', (payload) => {
   publish('tts_start', payload);
   publish('status', status());
-  publishSnapshot();
 });
 bus.on('TTS_END', () => {
   publish('tts_end', {});
   publish('status', status());
-  publishSnapshot();
 });
 bus.on('LIPSYNC_UPDATE', (payload) => {
   publish('lipsync', payload);
@@ -162,7 +161,7 @@ bus.on('TWITCH_DISCONNECTED', () => {
 });
 
 const engine = new ConversationEngine(db, llm, bus, () => effectiveSettings(), tts,{twitch:()=>twitch.isConnected,player:()=>Boolean(player?.readyState===1)});
-bus.on('WORKSPACE_CHANGED',publishSnapshot);
+bus.on('WORKSPACE_CHANGED',scheduleWorkspace);
 const streamerTimer = setInterval(() => void engine.streamerTick(), 5_000);
 let lipTest:ReturnType<typeof setInterval>|undefined;
 function cancelLipTest(){if(lipTest)clearInterval(lipTest);lipTest=undefined;bus.emit('LIPSYNC_UPDATE',{value:0});}
@@ -172,6 +171,10 @@ app.addHook('onRequest', async (request, reply) => {
   const id = request.headers['x-request-id']?.toString() ?? crypto.randomUUID();
   reply.header('x-request-id', id);
   (request as { id: string }).id = id;
+});
+app.addHook('onSend', async (request, reply, payload) => {
+  if (request.url.startsWith('/api/')) reply.header('Cache-Control', 'no-store');
+  return payload;
 });
 registerSettingsMutationGuard(app, () => settingsMutation);
 
@@ -188,16 +191,22 @@ app.post('/api/avatar/lipsync-test',async()=>{
 });
 app.get('/api/sessions', request=>{const q=z.object({offset:z.coerce.number().int().min(0).default(0),limit:z.coerce.number().int().min(1).max(100).default(20)}).parse(request.query);return db.sessions(q.offset,q.limit);});
 app.get('/api/sessions/:id',request=>{const id=z.coerce.number().int().positive().parse((request.params as {id:string}).id);const q=z.object({offset:z.coerce.number().int().min(0).default(0),limit:z.coerce.number().int().min(1).max(200).default(200)}).parse(request.query);return db.sessionDetail(id,q.offset,q.limit);});
-function applySettings(next:Settings){
+function applySettings(next:Settings, options:{twitchCredentialsChanged?:boolean}={}){
   const previous=settings;settings=next;tts.cancel();tts.rebuild();
   if(previous.avatarMode!==next.avatarMode||previous.vtubeStudioUrl!==next.vtubeStudioUrl){
     avatarProvider.disconnect();avatarProvider=next.avatarMode==='vtube-studio'?new VTubeStudioProvider(next.vtubeStudioUrl,bus,vtsStorage):new DisabledAvatarProvider();
     if(next.avatarMode==='vtube-studio') void avatarProvider.connect();
   }
+  const twitchIdentityChanged=previous.twitchUsername!==next.twitchUsername||previous.twitchChannel!==next.twitchChannel;
+  if((twitchIdentityChanged||options.twitchCredentialsChanged)&&twitch.isConnected){
+    twitch.disconnect();
+    const effective=effectiveSettings();
+    if(effective.twitchUsername&&effective.twitchChannel&&effective.twitchOauthToken) twitch.connect(effective);
+  }
   if(previous.live2dModelPath!==next.live2dModelPath||previous.avatarMode!==next.avatarMode) internalAvatar='loading';
-  engine.profileSelected();publish('settings',maskedSettings());publish('status',status());publishSnapshot();
+  engine.profileSelected();publish('settings',maskedSettings());publish('status',status());
 }
-registerProfileRoutes(app,db,{getRuntime:()=>engine.state,beforeSelect:()=>engine.beforeProfileSelect(),applySettings,publish:(type,payload)=>{publish(type,payload);publishSnapshot();}});
+registerProfileRoutes(app,db,{getRuntime:()=>engine.state,beforeSelect:()=>engine.beforeProfileSelect(),applySettings,publish:(type,payload)=>{publish(type,payload);scheduleWorkspace();},getPublicSettings:maskedSettings});
 app.put(
   '/api/settings',
   { schema: { body: SettingsPutSchema } },
@@ -206,7 +215,9 @@ app.put(
     if(engine.state.state==='running') throw Object.assign(new Error('Поставьте эфир на паузу перед изменением настроек.'),{statusCode:409});
     settingsMutation=true;
     try {
-    const incoming = { ...request.body } as Partial<Settings>;
+    const incoming = { ...request.body } as Partial<Settings> & Partial<SecretValues>;
+    const previousEffective = effectiveSettings();
+    const previousSecrets = Object.fromEntries(secretKeys.map(key => [key, previousEffective[key]])) as SecretValues;
     engine.command('interrupt');
     const changes: Partial<SecretValues> = {};
     for (const key of secretKeys) {
@@ -215,8 +226,23 @@ app.put(
       delete incoming[key];
     }
     await secrets.update(changes);
-    if(['llmEndpoint','llmApiKey','llmModel'].some(key=>Object.hasOwn(request.body,key))) {connectionRevision++;llmCheck={state:secrets.effective({...settings,...incoming}).llmApiKey?'configured':'unconfigured'};}
-    applySettings(db.saveSettings(incoming));
+    let saved: Settings;
+    try {
+      saved = db.saveSettings(incoming);
+    } catch (error) {
+      // The vault was already updated; restore it if the settings transaction fails.
+      if (Object.keys(changes).length) await secrets.update(previousSecrets).catch(() => {});
+      throw error;
+    }
+    const nextEffective = secrets.effective({ ...settings, ...incoming });
+    if (previousEffective.llmEndpoint !== nextEffective.llmEndpoint
+      || previousEffective.llmApiKey !== nextEffective.llmApiKey
+      || previousEffective.llmModel !== nextEffective.llmModel) {
+      connectionRevision++;
+      llmCheck = { state: nextEffective.llmApiKey ? 'configured' : 'unconfigured' };
+      publishChecks();
+    }
+    applySettings(saved, { twitchCredentialsChanged: Object.hasOwn(changes, 'twitchOauthToken') });
     bus.emit('LOG', { level: 'info', source: 'Settings', message: 'Настройки сохранены.' });
     publish('settings', maskedSettings());
     publish('status', status());
@@ -249,19 +275,27 @@ app.post('/api/llm/models', async (request, reply) => {
   const eff = effectiveSettings();
   const body = z.object({endpoint:z.string().url().optional(),apiKey:z.string().optional()}).parse(request.body??{});
   const endpoint = (body.endpoint || eff.llmEndpoint || 'https://api.openai.com/v1').replace(/\/$/, '');
-  const apiKey = (body.apiKey && !body.apiKey.includes('***')) ? body.apiKey : eff.llmApiKey;
+  const savedEndpoint = eff.llmEndpoint.replace(/\/$/, '');
+  const suppliedKey = body.apiKey && !body.apiKey.includes('***') ? body.apiKey : '';
+  // The saved key must never be sent to a caller-supplied endpoint.
+  const apiKey = suppliedKey || (endpoint === savedEndpoint ? eff.llmApiKey : '');
   const revision=connectionRevision;
-  const savedConfig=endpoint===eff.llmEndpoint.replace(/\/$/,'')&&apiKey===eff.llmApiKey;
-  const check=(next:ConnectionCheck)=>{if(savedConfig&&revision===connectionRevision)llmCheck=next;};
+  const savedConfig=endpoint===savedEndpoint&&apiKey===eff.llmApiKey;
+  const check=(next:ConnectionCheck)=>{if(savedConfig&&revision===connectionRevision){llmCheck=next;publishChecks();}};
 
   if (!apiKey) {
-    return reply.status(400).send({ ok: false, error: 'Укажите API key для получения списка моделей.' });
+    return reply.status(400).send({
+      ok: false,
+      error: endpoint === savedEndpoint
+        ? 'Укажите API key для получения списка моделей.'
+        : 'Для нового endpoint укажите API key в этом запросе. Сохранённый ключ не отправляется на другие адреса.',
+    });
   }
 
   const url = `${endpoint}/models`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12_000);
-  check({state:'checking'});publishSnapshot();
+  check({state:'checking'});
   try {
     const res = await fetch(url, {
       method: 'GET',
@@ -292,7 +326,7 @@ app.post('/api/llm/models', async (request, reply) => {
     const msg = redactSecrets(err instanceof Error ? err.message : String(err),[apiKey]);
     check({state:'error',message:msg});
     return reply.status(500).send({ ok: false, error: `Не удалось загрузить модели: ${msg}` });
-  } finally { clearTimeout(timer); if(llmCheck.state==='checking')check({state:'error',message:'API не подтвердил доступ.'});publishSnapshot(); }
+  } finally { clearTimeout(timer); if(llmCheck.state==='checking')check({state:'error',message:'API не подтвердил доступ.'}); }
 });
 
 app.post('/api/twitch/connect', async () => {
@@ -309,7 +343,8 @@ app.post('/api/twitch/disconnect', async () => {
   return { ok: true };
 });
 app.post('/api/tts/cancel', async () => {
-  engine.command('interrupt');
+  // Audio-only stop: do not abort an in-flight text generation.
+  tts.cancel();
   return { ok: true };
 });
 app.post('/api/tts/preview',async request=>{
@@ -336,7 +371,10 @@ app.get('/ws', { websocket: true }, (socket) => {
     const parsed=z.object({type:z.string(),payload:z.object({text:z.string().max(32000).optional(),value:z.number().finite().optional(),id:z.string().optional(),error:z.string().max(1000).optional(),state:z.enum(['loaded','error','loading']).optional(),message:z.string().max(1000).optional()}).default({})}).safeParse(decoded);
     if(!parsed.success)return;const msg=parsed.data;
     if(msg.type==='player_ready'){
-      if(!player||player===socket){player=socket;socket.send(JSON.stringify({type:'player_granted',payload:{},serverInstanceId,seq:++seq}));}
+      // A reconnecting main window must be able to take ownership even before
+      // the server observes the old socket's close event.
+      player=socket;
+      socket.send(JSON.stringify({type:'player_granted',payload:{},serverInstanceId,seq:++seq}));
       return;
     }
     if (msg.type === 'tts_done' && player===socket && typeof msg.payload.text === 'string') {
@@ -346,7 +384,7 @@ app.get('/ws', { websocket: true }, (socket) => {
     } else if (msg.type === 'lipsync' && player===socket && typeof msg.payload?.value === 'number') {
       bus.emit('LIPSYNC_UPDATE', { value: Math.max(0, Math.min(1, msg.payload.value)) });
     } else if(msg.type==='avatar_state' && msg.payload.state && internalAvatar!==msg.payload.state){
-      internalAvatar=msg.payload.state;publish('avatar_state',msg.payload);publish('status',status());publishSnapshot();
+      internalAvatar=msg.payload.state;publish('avatar_state',msg.payload);publish('status',status());
     } else if(msg.type==='player_warning' && player===socket){
       bus.emit('LOG',{level:'error',source:'Audio',message:redactSecrets(msg.payload.message??'Ошибка аудиоплеера')});
     }

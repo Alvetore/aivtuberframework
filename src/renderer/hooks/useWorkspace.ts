@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Snapshot, RuntimeCommand, ProductEvent } from '../../shared/product';
+import type { Snapshot, RuntimeCommand, ProductEvent, WorkspacePayload } from '../../shared/product';
 import type { Settings } from '../../shared/types';
 import { api, websocketUrl } from './api';
 import { useWebSocket } from './useWebSocket';
@@ -34,6 +34,10 @@ export function useWorkspace(){
     if(event.type==='player_granted'){owner.current=true;return;}
     if(event.type==='tts_speak'&&owner.current) client.current?.speak(event.payload as Parameters<TtsClient['speak']>[0]);
     if(event.type==='tts_cancel')client.current?.cancel();
+    if(event.type==='workspace'&&current.current){current.current={...current.current,...event.payload as WorkspacePayload};setSnapshot(current.current);}
+    if(event.type==='settings'&&current.current){current.current={...current.current,settings:event.payload as Snapshot['settings']};setSnapshot(current.current);}
+    if(event.type==='profiles'&&current.current){current.current={...current.current,profiles:event.payload as Snapshot['profiles']};setSnapshot(current.current);}
+    if(event.type==='checks'&&current.current){current.current={...current.current,checks:{llm:event.payload as Snapshot['checks']['llm']}};setSnapshot(current.current);}
     if(event.type==='status'&&current.current){current.current={...current.current,status:event.payload as Snapshot['status']};setSnapshot(current.current);}
     if(event.type==='queue'&&current.current){current.current={...current.current,queue:event.payload as Snapshot['queue']};setSnapshot(current.current);}
     if(event.type==='lipsync')setMouthOpen((event.payload as {value:number}).value);
@@ -41,7 +45,7 @@ export function useWorkspace(){
     if(event.type==='player_warning')setError((event.payload as {message:string}).message);
   }});
   sendRef.current=ws.send;
-  useEffect(()=>{const player=new TtsClient({send:msg=>sendRef.current(msg)});player.init();client.current=player;return()=>{player.cancel();client.current=null;};},[]);
+  useEffect(()=>{const player=new TtsClient({send:msg=>sendRef.current(msg)});player.init();client.current=player;return()=>{player.dispose();client.current=null;};},[]);
   const run=useCallback(async<T,>(action:()=>Promise<T>):Promise<T>=>{
     setBusy(true);setError('');try{return await action();}catch(e){setError((e as Error).message);throw e;}finally{setBusy(false);}
   },[]);

@@ -18,6 +18,7 @@ export function FormShell<T extends FieldValues>({ form, onSave, saving, notice,
   const c = useCopy();
   const [error, setError] = useState('');
   const save = async () => { if (saving || (draft && !draft.dirty)) return; setError(''); try { await onSave(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } };
+  const saveRef = useRef(save); saveRef.current = save;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -25,12 +26,12 @@ export function FormShell<T extends FieldValues>({ form, onSave, saving, notice,
         const element = document.activeElement;
         if (element && !element.closest('form')?.isSameNode(formElement.current)) return;
         e.preventDefault();
-        void save();
+        void saveRef.current();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onSave]);
+  }, []);
   const formElement = useRef<HTMLFormElement>(null);
   return (
     <form ref={formElement} onSubmit={(e) => { e.preventDefault(); void save(); }} className="settings-form">
@@ -78,7 +79,7 @@ export function Field<T extends FieldValues>({ form, name, label, type = 'text',
         {type === 'textarea' ? (
           <textarea rows={rows ?? 3} {...register(name)} placeholder={placeholder} className={error ? 'error' : ''} aria-invalid={!!error} />
         ) : (
-          <input type={type} step={type === 'number' ? 'any' : undefined} {...register(name)} placeholder={placeholder} className={error ? 'error' : ''} aria-invalid={!!error} />
+          <input type={type} step={type === 'number' ? 'any' : undefined} {...(type === 'number' ? register(name, { valueAsNumber: true }) : register(name))} placeholder={placeholder} className={error ? 'error' : ''} aria-invalid={!!error} />
         )}
         {error && <em className="error">{validationText(error, c)}</em>}
       </label>
@@ -99,13 +100,14 @@ export function Select<T extends FieldValues>({ form, name, label, options, tool
   const c = useCopy();
   const { register } = form;
   const error = form.formState.errors[name]?.message as string | undefined;
+  const numeric = options.length > 0 && options.every(option => typeof option.value === 'number');
   return (
     <div className="field-wrapper">
       <label className="field">
         <div className="field-label-row">
           <span>{label}</span>
         </div>
-        <select {...register(name)} aria-invalid={!!error}>
+        <select {...(numeric ? register(name, { valueAsNumber: true }) : register(name))} aria-invalid={!!error}>
           {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         {error && <em className="error">{validationText(error, c)}</em>}

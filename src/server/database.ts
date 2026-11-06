@@ -1,11 +1,9 @@
 import Database from 'better-sqlite3';
-import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ChatMessage, Settings } from '../shared/types.js';
 import { defaultSettings } from '../shared/types.js';
-import * as schema from './schema.js';
-import { secretKeys, type SecretValues } from '../shared/secrets.js';
+import { secretKeys, type SecretKey, type SecretValues } from '../shared/secrets.js';
 import { ProfileFileSchema, pickProfileSettings, type Profile, type ProfileSettings, type ProfileFile, type Operation, type FeedMessage, type SessionSummary, type SessionDetail, type PageResult } from '../shared/product.js';
 
 export interface ContextOptions { excludeBot?: boolean }
@@ -19,7 +17,6 @@ export interface ChatRecord {
 
 export class AppDatabase {
   private db: Database.Database;
-  private ormDb: BetterSQLite3Database<typeof schema>;
 
   constructor(customPath?: string) {
     let resolvedPath = customPath;
@@ -40,7 +37,35 @@ export class AppDatabase {
     this.db.pragma('secure_delete = ON');
     this.migrate();
     this.migrateWorkspace();
-    this.ormDb = drizzle(this.db, { schema });
+    this.pruneRetention();
+  }
+
+  private retentionDays(name: string, fallback: number): number {
+    const raw = process.env[name];
+    if (raw === undefined || raw.trim() === '') return fallback;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
+  }
+
+  /** Remove old diagnostics by default; chat messages are only pruned when explicitly enabled. */
+  pruneRetention(now = Date.now(), options: { operationDays?: number; messageDays?: number } = {}): { operations: number; messages: number } {
+    const operationDays = options.operationDays ?? this.retentionDays('VTUBER_OPERATION_RETENTION_DAYS', 30);
+    const messageDays = options.messageDays ?? this.retentionDays('VTUBER_MESSAGE_RETENTION_DAYS', 0);
+    let operations = 0;
+    let messages = 0;
+    if (operationDays > 0) {
+      const cutoff = new Date(now - operationDays * 86_400_000).toISOString();
+      operations = this.db.prepare("DELETE FROM operations WHERE created_at < ? AND json_extract(data,'$.outcome') <> 'pending'").run(cutoff).changes;
+    }
+    if (messageDays > 0) {
+      const cutoff = new Date(now - messageDays * 86_400_000).toISOString();
+      this.db.transaction(() => {
+        messages = (this.db.prepare('SELECT count(*) AS n FROM messages WHERE timestamp < ?').get(cutoff) as { n: number }).n;
+        this.db.prepare('DELETE FROM message_context WHERE message_id IN (SELECT id FROM messages WHERE timestamp < ?)').run(cutoff);
+        this.db.prepare('DELETE FROM messages WHERE timestamp < ?').run(cutoff);
+      })();
+    }
+    return { operations, messages };
   }
   private migrateWorkspace() {
     this.db.transaction(() => {
@@ -51,7 +76,8 @@ export class AppDatabase {
         CREATE INDEX IF NOT EXISTS idx_message_context_session ON message_context(session_id);
         CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY,profile_id TEXT NOT NULL,session_id INTEGER,source TEXT NOT NULL,created_at TEXT NOT NULL,data TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_operations_session ON operations(session_id,created_at);
-        CREATE INDEX IF NOT EXISTS idx_operations_profile ON operations(profile_id,created_at);`);
+        CREATE INDEX IF NOT EXISTS idx_operations_profile ON operations(profile_id,created_at);
+        CREATE INDEX IF NOT EXISTS idx_operations_outcome ON operations(json_extract(data,'$.outcome'));`);
       const columns = this.db.prepare('PRAGMA table_info(sessions)').all() as {name:string}[];
       if (!columns.some(c => c.name === 'profile_id')) this.db.exec('ALTER TABLE sessions ADD COLUMN profile_id TEXT');
       if (!columns.some(c => c.name === 'legacy')) this.db.exec('ALTER TABLE sessions ADD COLUMN legacy INTEGER NOT NULL DEFAULT 1');
@@ -148,7 +174,7 @@ export class AppDatabase {
   }
   sessionDetail(id:number,offset=0,limit=200):SessionDetail {
     const row=this.db.prepare('SELECT s.*,p.name AS profile_name FROM sessions s LEFT JOIN profiles p ON p.id=s.profile_id WHERE s.id=?').get(id);
-    if(!row) throw new Error('Сессия не найдена.');
+    if(!row) throw Object.assign(new Error('Сессия не найдена.'),{statusCode:404});
     return {session:this.sessionSummary(row),messages:this.feed(limit,id,offset),operations:(this.db.prepare('SELECT data FROM operations WHERE session_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?').all(id,limit,offset) as {data:string}[]).map(r=>JSON.parse(r.data))};
   }
   private migrate() {
@@ -210,10 +236,16 @@ export class AppDatabase {
   }
   async migrateSecrets(persist: (values: Partial<SecretValues>) => Promise<void>): Promise<void> {
     const legacy: Partial<SecretValues> = {};
+    const legacyNames: Record<SecretKey, string> = {
+      twitchOauthToken: 'twitchOauthToken', llmApiKey: 'llmApiKey',
+      openaiTtsApiKey: 'openaiTtsApiKey', elevenlabsApiKey: 'elevenlabsApiKey',
+      vtsAuthToken: 'vts_auth_token',
+    };
     let found = false;
     const find = this.db.prepare('SELECT value FROM settings WHERE key=?');
     for (const key of secretKeys) {
-      const row = find.get(key) as { value: string } | undefined;
+      // Older builds kept the VTS plugin token in SQLite under a snake_case key.
+      const row = find.get(legacyNames[key]) as { value: string } | undefined;
       if (!row) continue;
       found = true;
       const value: unknown = JSON.parse(row.value);
@@ -223,7 +255,11 @@ export class AppDatabase {
     if (Object.keys(legacy).length) await persist(legacy);
     this.db.transaction(() => {
       const remove = this.db.prepare('DELETE FROM settings WHERE key=?');
-      for (const key of secretKeys) remove.run(key);
+      for (const key of secretKeys) {
+        remove.run(legacyNames[key]);
+        // Defensive cleanup for a field-name key written by early development builds.
+        if (key === 'vtsAuthToken') remove.run('vtsAuthToken');
+      }
     })();
     if (found) this.db.exec('VACUUM');
     this.db.pragma('wal_checkpoint(TRUNCATE)');
@@ -284,5 +320,4 @@ export class AppDatabase {
     if (this.currentSessionId !== null) this.messageCountInSession++;
   }
   raw(): Database.Database { return this.db; }
-  orm(): BetterSQLite3Database<typeof schema> { return this.ormDb; }
 }
