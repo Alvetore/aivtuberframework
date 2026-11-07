@@ -1,6 +1,30 @@
-# AI VTuber Framework Lite
+<p align="center">
+  <img src="docs/screenshots/live.png" alt="AI VTuber Framework Lite — экран эфира" width="100%">
+</p>
 
-Десктопный MVP для ведения Twitch-стрима виртуальной ведущей. Приложение состоит из Electron/React-панели и локального Fastify-сервера. В обычном запуске история чата и настройки хранятся в `vtuber.sqlite` внутри `app.getPath('userData')`; dev сохраняет прежний путь `data/vtuber.sqlite`. Четыре API/OAuth-ключа и токен VTube Studio хранятся отдельно в зашифрованном `secrets.bin`. Самостоятельные инструменты работы с БД по умолчанию используют `data/vtuber.sqlite`.
+<h1 align="center">AI VTuber Framework Lite</h1>
+
+<p align="center">
+  <a href="https://github.com/Alvetore/aivtuberframework/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Alvetore/aivtuberframework?style=flat-square&label=release"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/github/license/Alvetore/aivtuberframework?style=flat-square"></a>
+  <a href="https://github.com/Alvetore/aivtuberframework/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Alvetore/aivtuberframework/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <img alt="Windows x64" src="https://img.shields.io/badge/platform-Windows%20x64-0078D6?style=flat-square&logo=windows&logoColor=white">
+  <img alt="Electron + React + Fastify" src="https://img.shields.io/badge/stack-Electron%20%7C%20React%20%7C%20Fastify-6f42c1?style=flat-square">
+</p>
+
+<p align="center"><b>Локальная студия виртуальной ведущей для Twitch: чат, LLM-ответы, голос, Live2D и чистое OBS-окно.</b></p>
+
+<p align="center">
+  <a href="#скачать-готовое-приложение-для-windows">Скачать</a> ·
+  <a href="#скриншоты">Скриншоты</a> ·
+  <a href="#возможности">Возможности</a> ·
+  <a href="#технологии">Технологии</a> ·
+  <a href="#установка-из-github">Установка</a> ·
+  <a href="#безопасность">Безопасность</a> ·
+  <a href="#лицензия">Лицензия</a>
+</p>
+
+Десктопное приложение для Windows, которое читает Twitch-чат, ведёт разговор через OpenAI-совместимую модель, озвучивает ответы и показывает виртуальную ведущую в Live2D, SVG или VTube Studio. Всё работает локально: Electron-панель, Fastify-бэкенд и SQLite-хранилище; наружу уходят только запросы к выбранным вами LLM/TTS-провайдерам.
 
 ## Скачать готовое приложение для Windows
 
@@ -15,6 +39,75 @@ Node.js и npm для готовой сборки не нужны. Python пон
 В релизе также есть `SHA256SUMS.txt` для проверки скачанного архива. Автоматические архивы GitHub **Source code (zip/tar.gz)** содержат исходники, а не готовую программу. Каталог `release/win-unpacked` создаётся при локальной сборке и не хранится в Git.
 
 **Подробная инструкция пользователя:** [запуск, настройка модели, Twitch, голоса, аватара и OBS](USER_GUIDE_RU.md).
+
+## Скриншоты
+
+<p align="center"><sub>Демонстрационный профиль. Twitch, LLM и TTS используют тестовые данные; ключи на экранах замаскированы.</sub></p>
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/character.png" alt="Профили и характер персонажа" width="100%"><br>
+      <sub><b>Персонаж</b> — профили, характер и стиль общения.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/voice.png" alt="Настройка голоса и TTS" width="100%"><br>
+      <sub><b>Голос</b> — Web Speech, Silero, OpenAI Audio и ElevenLabs.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/avatar.png" alt="Настройка аватара и OBS-окна" width="100%"><br>
+      <sub><b>Аватар</b> — SVG/Live2D, VTube Studio и clean-окно для OBS.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/connections.png" alt="Подключения модели и Twitch" width="100%"><br>
+      <sub><b>Подключения</b> — модель, API-ключи и Twitch-канал.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+      <img src="docs/screenshots/diagnostics.png" alt="Диагностика реплик и метрик" width="72%"><br>
+      <sub><b>Диагностика</b> — решения ведущей, задержки, токены и история сессий.</sub>
+    </td>
+  </tr>
+</table>
+
+## Возможности
+
+- **Twitch-чат в реальном времени** — IRC-over-WebSocket, reconnect, теги, ответы только на обращения и вопросы.
+- **LLM-ведущая** — OpenAI-совместимые API (OpenAI, OpenRouter, DeepSeek, локальные серверы), контекст диалога, cooldown и лимиты.
+- **Голос** — системный Web Speech, локальный Silero, OpenAI Audio и ElevenLabs; очередь речи и lip-sync.
+- **Аватар** — встроенный SVG, Live2D (Cubism 4) и VTube Studio; отдельное прозрачное OBS-окно и хромакей.
+- **Профили** — отдельные характер, голос и оформление; изолированная история; импорт/экспорт JSON без ключей.
+- **Диагностика** — события, решения, задержки, provider usage, сессии и метрики без выдуманных цен.
+- **Local-first и безопасность** — loopback-only сервер, сессионная cookie, Host/Origin-проверки, sandbox, зашифрованный `secrets.bin`, redaction логов.
+- **Windows x64** — готовый ZIP, NSIS/portable-сборки, запуск без Node.js и npm.
+
+## Технологии
+
+| Слой | Стек |
+| --- | --- |
+| Desktop | Electron 45, `safeStorage`, sandboxed renderer, IPC |
+| UI | React 18, TypeScript, Vite 6, react-hook-form, Zod 4 |
+| Backend | Fastify 5, WebSocket, OpenAI-compatible HTTP, Twitch IRC |
+| Данные | SQLite, better-sqlite3 13, WAL, транзакционные миграции |
+| Аватар | PixiJS 6, pixi-live2d-display 0.4, SVG, VTube Studio |
+| Качество | 140 тестов, CI, production audit без известных уязвимостей |
+
+## Архитектура
+
+```mermaid
+flowchart LR
+  UI[React UI] <-->|HTTP / WebSocket| API[Fastify backend]
+  API <--> DB[(SQLite)]
+  API <--> LLM[OpenAI-compatible LLM]
+  API <--> TTS[Web Speech / Silero / OpenAI / ElevenLabs]
+  UI <--> AV[Live2D / SVG / VTube Studio]
+  MAIN[Electron main] -->|safeStorage| VAULT[(secrets.bin)]
+```
+
+Main-процесс запускает локальный backend на `127.0.0.1`, выдаёт сессионную cookie и хранит ключи в зашифрованном vault. Renderer общается с backend по HTTP/WS и не получает plaintext-ключи.
 
 ## Установка из GitHub
 
