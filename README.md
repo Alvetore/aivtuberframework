@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="docs/screenshots/live.png" alt="AI VTuber Framework Lite — экран эфира" width="100%">
+  🌐 <b>Русский</b> · <a href="README.en.md">English</a>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/ru/live.png" alt="AI VTuber Framework Lite — экран эфира" width="100%">
 </p>
 
 <h1 align="center">AI VTuber Framework Lite</h1>
@@ -26,6 +30,8 @@
 
 Десктопное приложение для Windows, которое читает Twitch-чат, ведёт разговор через OpenAI-совместимую модель, озвучивает ответы и показывает виртуальную ведущую в Live2D, SVG или VTube Studio. Всё работает локально: Electron-панель, Fastify-бэкенд и SQLite-хранилище; наружу уходят только запросы к выбранным вами LLM/TTS-провайдерам.
 
+> Интерфейс приложения переключается между **русским** и **английским** языками кнопкой в левом нижнем углу.
+
 ## Скачать готовое приложение для Windows
 
 **[Скачать Windows x64 — v0.1.1 (ZIP)](https://github.com/Alvetore/aivtuberframework/releases/download/v0.1.1/AI-VTuber-Framework-Lite-0.1.1-win-x64.zip)** · [Все релизы](https://github.com/Alvetore/aivtuberframework/releases)
@@ -47,27 +53,27 @@ Node.js и npm для готовой сборки не нужны. Python пон
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/character.png" alt="Профили и характер персонажа" width="100%"><br>
+      <img src="docs/screenshots/ru/character.png" alt="Профили и характер персонажа" width="100%"><br>
       <sub><b>Персонаж</b> — профили, характер и стиль общения.</sub>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/voice.png" alt="Настройка голоса и TTS" width="100%"><br>
+      <img src="docs/screenshots/ru/voice.png" alt="Настройка голоса и TTS" width="100%"><br>
       <sub><b>Голос</b> — Web Speech, Silero, OpenAI Audio и ElevenLabs.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/avatar.png" alt="Настройка аватара и OBS-окна" width="100%"><br>
+      <img src="docs/screenshots/ru/avatar.png" alt="Настройка аватара и OBS-окна" width="100%"><br>
       <sub><b>Аватар</b> — SVG/Live2D, VTube Studio и clean-окно для OBS.</sub>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/connections.png" alt="Подключения модели и Twitch" width="100%"><br>
+      <img src="docs/screenshots/ru/connections.png" alt="Подключения модели и Twitch" width="100%"><br>
       <sub><b>Подключения</b> — модель, API-ключи и Twitch-канал.</sub>
     </td>
   </tr>
   <tr>
     <td colspan="2" align="center">
-      <img src="docs/screenshots/diagnostics.png" alt="Диагностика реплик и метрик" width="72%"><br>
+      <img src="docs/screenshots/ru/diagnostics.png" alt="Диагностика реплик и метрик" width="72%"><br>
       <sub><b>Диагностика</b> — решения ведущей, задержки, токены и история сессий.</sub>
     </td>
   </tr>
