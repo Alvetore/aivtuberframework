@@ -1,7 +1,7 @@
 {
   "name": "ai-vtuber-framework-lite",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Local AI VTuber studio for Twitch chat, LLM replies, TTS and Live2D/VTube Studio.",
   "author": "Alvetore",
   "license": "MIT",
