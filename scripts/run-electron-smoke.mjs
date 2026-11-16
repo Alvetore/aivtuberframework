@@ -48,11 +48,45 @@ async function run(executable, args, env, timeout = 45_000) {
   });
 }
 
+// Pre-workspace schema from the first public build; AppDatabase migrates it forward.
+const legacySchema = `
+  CREATE TABLE IF NOT EXISTS messages (
+    id text PRIMARY KEY NOT NULL,
+    viewer_id integer,
+    username text NOT NULL,
+    message text NOT NULL,
+    timestamp text NOT NULL,
+    is_bot_response integer DEFAULT false NOT NULL,
+    FOREIGN KEY (viewer_id) REFERENCES viewers(id) ON UPDATE no action ON DELETE cascade
+  );
+  CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages (timestamp);
+  CREATE INDEX IF NOT EXISTS idx_messages_viewer ON messages (viewer_id);
+  CREATE TABLE IF NOT EXISTS sessions (
+    id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+    start_time text NOT NULL,
+    end_time text,
+    message_count integer DEFAULT 0 NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS settings (
+    key text PRIMARY KEY NOT NULL,
+    value text NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS viewers (
+    id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+    twitch_id text NOT NULL,
+    username text NOT NULL,
+    first_seen text NOT NULL,
+    last_seen text NOT NULL,
+    message_count integer DEFAULT 0 NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS viewers_twitch_id_unique ON viewers (twitch_id);
+`;
+
 function seedLegacyDatabase() {
   const Database = require('better-sqlite3');
   const db = new Database(path.join(profile, 'vtuber.sqlite'));
   try {
-    db.exec(readFileSync(path.join(root, 'drizzle/0000_lethal_jane_foster.sql'), 'utf8'));
+    db.exec(legacySchema);
     const insert = db.prepare('INSERT INTO settings (key,value) VALUES (?,?)');
     for (const key of ['twitchOauthToken', 'llmApiKey', 'openaiTtsApiKey', 'elevenlabsApiKey']) insert.run(key, JSON.stringify(`legacy-smoke-${key}`));
     insert.run('unknown_setting', JSON.stringify({ preserved: [0, false, null] }));

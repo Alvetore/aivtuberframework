@@ -151,13 +151,7 @@ For source runs, the native `better-sqlite3` module must match the installed Nod
 
 ### Database
 
-On startup, `AppDatabase` applies transactional additive migrations while preserving existing history and settings. Drizzle Kit is used for schema development; its commands work with `data/vtuber.sqlite` and do not replace the profile migration performed at startup:
-
-```powershell
-npm run db:generate   # generate SQL from src/server/schema.ts
-npm run db:migrate    # apply migrations to data/vtuber.sqlite
-npm run db:studio     # open Drizzle Studio to inspect the database
-```
+On startup, `AppDatabase` applies transactional additive migrations while preserving existing history and settings. The schema is described and applied solely by the code in `src/server/database.ts`; no separate migration commands are needed. Any SQLite browser works for inspection (for example, `sqlite3 data/vtuber.sqlite`).
 
 The database uses these PRAGMAs:
 - `journal_mode = WAL` — concurrent reads and writes,
@@ -203,7 +197,7 @@ Before the first launch of an updated version, close the app and save a copy of 
 
 The update adds profile, message-metadata and operation tables, plus session fields. Original IDs, authors and texts are never rewritten. The first profile inherits the old settings and is explicitly linked to the old context. The migration runs transactionally and is repeatable. After a crash restart, unfinished operations are marked cancelled and open new sessions are closed.
 
-For a full rollback, close all app processes and restore a **consistent copy of the entire data directory and the old build**. Additional tables do not prevent the old version from reading, but it does not understand profile isolation; do not alternate writes between old and new versions into the same working database. Startup schema migrations are performed by `AppDatabase`; Drizzle commands are for development tools and do not replace this transition.
+For a full rollback, close all app processes and restore a **consistent copy of the entire data directory and the old build**. Additional tables do not prevent the old version from reading, but it does not understand profile isolation; do not alternate writes between old and new versions into the same working database. Startup schema migrations are performed by `AppDatabase`; no separate migration tooling is used.
 
 ### Secret storage
 
