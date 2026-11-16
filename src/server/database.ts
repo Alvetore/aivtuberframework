@@ -168,9 +168,13 @@ export class AppDatabase {
     return {items:rows.map(r=>this.sessionSummary(r)),total:(this.db.prepare('SELECT count(*) AS n FROM sessions').get() as {n:number}).n,offset,limit};
   }
   private sessionSummary(r:any):SessionSummary {
-    const ops=(this.db.prepare('SELECT data FROM operations WHERE session_id=?').all(r.id) as {data:string}[]).map(o=>JSON.parse(o.data) as Operation);
-    const usages=ops.map(o=>o.usage?.totalTokens);
-    return {id:r.id,profileId:r.profile_id??null,profileName:r.profile_name??null,startTime:r.start_time,endTime:r.end_time,messageCount:r.message_count,legacy:Boolean(r.legacy),operationCount:ops.length,totalTokens:usages.length && usages.every(n=>typeof n==='number')?usages.reduce<number>((n,v)=>n+(v??0),0):null};
+    // Aggregate in SQL instead of loading and parsing every operation row.
+    const stats=this.db.prepare(`SELECT count(*) AS opCount,
+      count(json_extract(data,'$.usage.totalTokens')) AS withTokens,
+      sum(json_extract(data,'$.usage.totalTokens')) AS totalTokens
+      FROM operations WHERE session_id=?`).get(r.id) as {opCount:number;withTokens:number;totalTokens:number|null};
+    // totalTokens is only trustworthy when every operation reported a number.
+    return {id:r.id,profileId:r.profile_id??null,profileName:r.profile_name??null,startTime:r.start_time,endTime:r.end_time,messageCount:r.message_count,legacy:Boolean(r.legacy),operationCount:stats.opCount,totalTokens:stats.opCount>0&&stats.withTokens===stats.opCount?stats.totalTokens:null};
   }
   sessionDetail(id:number,offset=0,limit=200):SessionDetail {
     const row=this.db.prepare('SELECT s.*,p.name AS profile_name FROM sessions s LEFT JOIN profiles p ON p.id=s.profile_id WHERE s.id=?').get(id);

@@ -4,6 +4,7 @@ import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { ChatMessage } from '../../shared/types.js';
+import type { Operation } from '../../shared/product.js';
 
 describe('AppDatabase', () => {
   let db: AppDatabase;
@@ -109,6 +110,30 @@ describe('AppDatabase', () => {
     const userOnlyContext = db.context(10, { excludeBot: true });
     expect(userOnlyContext.length).toBe(1);
     expect(userOnlyContext[0].username).toBe('Bob');
+  });
+
+  it('aggregates session operation stats', () => {
+    const sessionId = db.startSession();
+    const op = (id: string, usage?: Operation['usage']): Operation => ({
+      id, author: 'Alice', prompt: 'вопрос', profileId: db.activeProfileId(), sessionId,
+      source: 'twitch', stage: 'finished', outcome: 'completed', createdAt: new Date().toISOString(), usage,
+    });
+    db.saveOperation(op('op-1', { promptTokens: 10, completionTokens: 5, totalTokens: 15 }));
+    db.saveOperation(op('op-2', { promptTokens: 10, completionTokens: 5, totalTokens: 15 }));
+
+    const summary = () => db.sessions().items.find(s => s.id === sessionId)!;
+    expect(summary().operationCount).toBe(2);
+    expect(summary().totalTokens).toBe(30);
+
+    // An operation without a numeric total invalidates the whole sum.
+    db.saveOperation(op('op-3', { promptTokens: 1, completionTokens: 1, totalTokens: null }));
+    expect(summary().operationCount).toBe(3);
+    expect(summary().totalTokens).toBeNull();
+
+    const emptySession = db.startSession();
+    const empty = db.sessions().items.find(s => s.id === emptySession)!;
+    expect(empty.operationCount).toBe(0);
+    expect(empty.totalTokens).toBeNull();
   });
 
   it('marks a missing session as not found', () => {
