@@ -336,10 +336,20 @@ function registerIpc() {
     // If ZIP archive:
     if (selectedPath.toLowerCase().endsWith('.zip')) {
       try {
+        // The archive is loaded into memory whole; refuse oversized inputs.
+        if (fs.statSync(selectedPath).size > 1024 * 1024 * 1024) {
+          return { ok: false, error: 'Архив больше 1 ГБ. Распакуйте модель вручную и выберите файл модели.' };
+        }
         const AdmZip = require('adm-zip');
         const zip = new AdmZip(selectedPath);
         const baseName = path.basename(selectedPath, path.extname(selectedPath)).replace(/[^a-zA-Z0-9_\-\u0400-\u04FF]/g, '_');
         const modelsDir = path.join(app.getPath('userData'), 'models', baseName);
+        // Re-importing the same archive name must not mix files from two versions.
+        try {
+          fs.rmSync(modelsDir, { recursive: true, force: true });
+        } catch (err) {
+          return { ok: false, error: `Каталог модели занят; закройте окно аватара и повторите. (${err.message})` };
+        }
         fs.mkdirSync(modelsDir, { recursive: true });
 
         zip.extractAllTo(modelsDir, true);
