@@ -109,6 +109,10 @@ export class VTubeStudioProvider implements AvatarProvider {
             if (epoch !== this.connectionEpoch) { resolve(); return; }
             this.bus.emit('LOG', { level: 'error', source: 'Avatar.VTS', message: `Ошибка авторизации VTS: ${String(err)}` });
             if (this.socket === socket) this.closeSocket();
+            // Transient handshake failures (API disabled, protocol timeouts) keep
+            // retrying; token-stage failures stay manual so VTS does not show the
+            // Allow dialog again every few seconds.
+            if (!(err as { authStage?: boolean }).authStage) this.scheduleReconnect();
             resolve();
           });
       });
@@ -215,20 +219,25 @@ export class VTubeStudioProvider implements AvatarProvider {
         source: 'Avatar.VTS',
         message: 'Запрос доступа: перейдите в окно VTube Studio и нажмите [Разрешить / Allow]!',
       });
-      const tokenResp = await this.request('AuthenticationTokenRequest', {
-        pluginName: 'AI VTuber Framework Lite',
-        pluginDeveloper: 'AIVTuberFramework',
-      });
-      if (superseded()) throw new Error('Соединение VTS заменено.');
-      token = tokenResp?.authenticationToken ?? '';
-      if (!token) throw new Error('Токен авторизации не был получен.');
-      await this.storage?.setToken(token);
-      if (superseded()) throw new Error('Соединение VTS заменено.');
+      try {
+        const tokenResp = await this.request('AuthenticationTokenRequest', {
+          pluginName: 'AI VTuber Framework Lite',
+          pluginDeveloper: 'AIVtuberFramework',
+        });
+        if (superseded()) throw new Error('Соединение VTS заменено.');
+        token = tokenResp?.authenticationToken ?? '';
+        if (!token) throw new Error('Токен авторизации не был получен.');
+        await this.storage?.setToken(token);
+        if (superseded()) throw new Error('Соединение VTS заменено.');
+      } catch (error) {
+        // Every token request re-shows the Allow dialog in VTube Studio.
+        throw Object.assign(error instanceof Error ? error : new Error(String(error)), { authStage: true });
+      }
     }
 
     const authResp = await this.request('AuthenticationRequest', {
       pluginName: 'AI VTuber Framework Lite',
-      pluginDeveloper: 'AIVTuberFramework',
+      pluginDeveloper: 'AIVtuberFramework',
       authenticationToken: token,
     });
     if (superseded()) throw new Error('Соединение VTS заменено.');
@@ -243,7 +252,7 @@ export class VTubeStudioProvider implements AvatarProvider {
       });
     } else {
       await this.storage?.setToken('');
-      throw new Error(`Авторизация отклонена: ${authResp?.reason ?? 'токен отозван'}`);
+      throw Object.assign(new Error(`Авторизация отклонена: ${authResp?.reason ?? 'токен отозван'}`), { authStage: true });
     }
   }
 

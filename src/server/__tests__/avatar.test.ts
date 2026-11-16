@@ -1,14 +1,27 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 
-const socketState = vi.hoisted(() => ({ instances: [] as Array<EventEmitter & { readyState: number; close: () => void }> }));
+type MockSocket = EventEmitter & {
+  readyState: number;
+  sent: Array<{ requestID: string; messageType: string; data?: Record<string, unknown> }>;
+  respond: ((msg: { messageType: string }) => Record<string, unknown> | undefined) | null;
+  close: () => void;
+};
+const socketState = vi.hoisted(() => ({ instances: [] as MockSocket[] }));
 
 vi.mock('ws', () => ({
   default: class extends EventEmitter {
     static OPEN = 1;
     readyState = 0;
-    constructor() { super(); socketState.instances.push(this); }
-    send() { /* no-op for lifecycle tests */ }
+    sent: MockSocket['sent'] = [];
+    respond: MockSocket['respond'] = null;
+    constructor() { super(); socketState.instances.push(this as unknown as MockSocket); }
+    send(raw: string) {
+      const msg = JSON.parse(raw);
+      this.sent.push(msg);
+      const reply = this.respond?.(msg);
+      if (reply) queueMicrotask(() => this.emit('message', Buffer.from(JSON.stringify({ requestID: msg.requestID, ...reply }))));
+    }
     close() {
       if (this.readyState === 3) return;
       this.readyState = 3;
@@ -49,6 +62,43 @@ describe('VTube Studio connection lifecycle', () => {
     expect(socketState.instances).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(4000);
     await Promise.all([first, second]);
+    provider.disconnect();
+  });
+
+  it('resumes reconnecting after a handshake failure before the token stage', async () => {
+    vi.useFakeTimers();
+    const provider = new VTubeStudioProvider('ws://127.0.0.1:8001', new EventBus());
+    const pending = provider.connect();
+    const socket = socketState.instances.at(-1)!;
+    socket.readyState = 1;
+    socket.respond = (msg) => msg.messageType === 'APIStateRequest'
+      ? { messageType: 'APIStateResponse', data: { active: false } }
+      : undefined;
+    socket.emit('open');
+    await pending;
+    expect(socketState.instances).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(socketState.instances).toHaveLength(2);
+    provider.disconnect();
+  });
+
+  it('does not auto-retry after an explicit VTS auth rejection', async () => {
+    vi.useFakeTimers();
+    const storage = { getToken: () => '', setToken: async () => {} };
+    const provider = new VTubeStudioProvider('ws://127.0.0.1:8001', new EventBus(), storage);
+    const pending = provider.connect();
+    const socket = socketState.instances.at(-1)!;
+    socket.readyState = 1;
+    socket.respond = (msg) => {
+      if (msg.messageType === 'APIStateRequest') return { messageType: 'APIStateResponse', data: { active: true } };
+      if (msg.messageType === 'AuthenticationTokenRequest') return { messageType: 'AuthenticationTokenResponse', data: { authenticationToken: 'tok' } };
+      if (msg.messageType === 'AuthenticationRequest') return { messageType: 'AuthenticationResponse', data: { authenticated: false, reason: 'denied' } };
+      return undefined;
+    };
+    socket.emit('open');
+    await pending;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(socketState.instances).toHaveLength(1);
     provider.disconnect();
   });
 });
