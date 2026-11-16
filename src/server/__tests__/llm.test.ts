@@ -17,7 +17,7 @@ describe('OpenAICompatibleProvider', () => {
 
   it('throws immediately if API key or model is missing', async () => {
     const settings = { ...defaultSettings, llmApiKey: '', llmModel: '' };
-    await expect(provider.chat(settings, [{ role: 'user', content: 'hi' }])).rejects.toThrow('LLM не настроена');
+    await expect(provider.chatWithUsage(settings, [{ role: 'user', content: 'hi' }])).rejects.toThrow('LLM не настроена');
   });
 
   it('does NOT retry on 401 Unauthorized client errors', async () => {
@@ -32,11 +32,11 @@ describe('OpenAICompatibleProvider', () => {
     }));
 
     const settings = { ...defaultSettings, llmApiKey: 'invalid_key', llmModel: 'gpt-4o' };
-    await expect(provider.chat(settings, [{ role: 'user', content: 'hi' }])).rejects.toThrow('LLM вернула 401');
+    await expect(provider.chatWithUsage(settings, [{ role: 'user', content: 'hi' }])).rejects.toThrow('LLM вернула 401');
     expect(callCount).toBe(1); // Exactly 1 call, no retries!
   });
 
-  it('successfully returns text and tracks cumulative token usage', async () => {
+  it('successfully returns text and token usage', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
       return {
         ok: true,
@@ -53,11 +53,8 @@ describe('OpenAICompatibleProvider', () => {
 
     expect(res.text).toBe('Привет! Я готова к стриму.');
     expect(res.usage?.totalTokens).toBe(23);
-
-    const usage = provider.getUsage();
-    expect(usage.totalTokens).toBe(23);
-    expect(usage.promptTokens).toBe(15);
-    expect(usage.completionTokens).toBe(8);
+    expect(res.usage?.promptTokens).toBe(15);
+    expect(res.usage?.completionTokens).toBe(8);
   });
 
   it.each([200, 500])('times out stalled response bodies with HTTP %s and cleans up each retry', async (status) => {
@@ -72,7 +69,7 @@ describe('OpenAICompatibleProvider', () => {
       return { ok: status === 200, status, json: read, text: read };
     });
     vi.stubGlobal('fetch', fetchMock);
-    const result = provider.chat({ ...defaultSettings, llmApiKey: 'fake-review-key' }, []);
+    const result = provider.chatWithUsage({ ...defaultSettings, llmApiKey: 'fake-review-key' }, []);
     const rejected = expect(result).rejects.toThrow('LLM таймаут после 30000ms');
 
     await vi.runAllTimersAsync();
@@ -91,7 +88,7 @@ describe('OpenAICompatibleProvider', () => {
       return { ok: true, json: async () => ({ choices: [{ message: { content: 'Ready' } }] }) };
     }));
 
-    await expect(provider.chat({ ...defaultSettings, llmApiKey: 'fake-review-key' }, [])).resolves.toBe('Ready');
+    await expect(provider.chatWithUsage({ ...defaultSettings, llmApiKey: 'fake-review-key' }, [])).resolves.toMatchObject({ text: 'Ready' });
     await vi.advanceTimersByTimeAsync(30_000);
 
     expect(signal?.aborted).toBe(false);

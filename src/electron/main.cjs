@@ -424,10 +424,10 @@ app.on('before-quit', event => {
   if (quitting) return;
   const windows=BrowserWindow.getAllWindows();
   if(windows.length){
-    // Let every renderer resolve beforeunload before committing to shutdown.
+    // Let every renderer resolve beforeunload before committing to shutdown;
+    // closing the last window re-enters this handler for the real teardown.
     event.preventDefault();
     for(const window of windows)window.close();
-    if(!quitting&&BrowserWindow.getAllWindows().length===0)app.quit();
     return;
   }
   event.preventDefault(); quitting = true;

@@ -1,6 +1,7 @@
 export function redactSecrets(text: string, knownValues: (string|undefined)[] = []): string {
   let redacted=text;
-  for(const value of knownValues)if(value && value!=='***')redacted=redacted.split(value).join('***');
+  // Short values would redact unrelated substrings of ordinary text.
+  for(const value of knownValues)if(value && value.length>=8 && value!=='***')redacted=redacted.split(value).join('***');
   return redacted
     .replace(/(Bearer\s+)[A-Za-z0-9._\-+/=]{8,}/g, '$1***')
     .replace(/(sk-[A-Za-z0-9_-])[A-Za-z0-9_\-]{16,}/g, '$1***')

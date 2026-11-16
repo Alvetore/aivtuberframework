@@ -3,7 +3,6 @@ import type { ChatMessage } from '../shared/types.js';
 
 export interface Events {
   CHAT_MESSAGE: ChatMessage;
-  VIEWER_JOIN: { twitchId: string; username: string };
   LLM_REQUEST: { prompt: string };
   LLM_RESPONSE: { text: string; operationId?: string };
   WORKSPACE_CHANGED: undefined;

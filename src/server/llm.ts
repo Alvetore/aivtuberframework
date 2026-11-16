@@ -10,15 +10,6 @@ const MAX_RETRIES = 2;
 const RETRY_BASE_MS = 1_000;
 
 export class OpenAICompatibleProvider {
-  private totalUsage: LlmUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
-
-  getUsage(): LlmUsage { return { ...this.totalUsage }; }
-
-  async chat(settings: Settings, messages: LlmMessage[], signal?: AbortSignal): Promise<string> {
-    const result = await this.chatWithUsage(settings, messages, signal);
-    return result.text;
-  }
-
   async chatWithUsage(settings: Settings, messages: LlmMessage[], signal?: AbortSignal): Promise<LlmResult> {
     if (!settings.llmApiKey || !settings.llmModel) throw new Error('LLM не настроена: укажите API key и модель.');
     const url = `${settings.llmEndpoint.replace(/\/$/, '')}/chat/completions`;
@@ -57,9 +48,6 @@ export class OpenAICompatibleProvider {
               completionTokens: token(data.usage.completion_tokens),
               totalTokens: token(data.usage.total_tokens),
             };
-            this.totalUsage.promptTokens = (this.totalUsage.promptTokens??0)+(usage.promptTokens??0);
-            this.totalUsage.completionTokens = (this.totalUsage.completionTokens??0)+(usage.completionTokens??0);
-            this.totalUsage.totalTokens = (this.totalUsage.totalTokens??0)+(usage.totalTokens??0);
           }
           return { text, usage, attempts:attempt+1 };
         }

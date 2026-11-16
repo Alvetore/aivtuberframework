@@ -3,8 +3,9 @@ import os
 import io
 import wave
 import json
+import threading
 import subprocess
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 def ensure_dependencies():
     missing = []
@@ -18,7 +19,7 @@ def ensure_dependencies():
         missing.append('numpy')
 
     if missing:
-        print(f'[silero] Отсутствуют зависимости: {missing}. Установка через pip...')
+        print(f'[silero] Отсутствуют зависимости: {missing}. Установка через pip (torch занимает ~2 ГБ при первом запуске)...')
         sys.stdout.flush()
         cmd = [sys.executable, '-m', 'pip', 'install'] + missing
         try:
@@ -57,6 +58,9 @@ except Exception as e:
     sys.exit(1)
 
 SPEAKERS = ['xenia', 'baya', 'kseniya', 'eugene', 'aidar', 'random']
+
+# Inference is serialized; /health stays responsive during long synthesis.
+_tts_lock = threading.Lock()
 
 class SileroHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
@@ -105,11 +109,12 @@ class SileroHandler(BaseHTTPRequestHandler):
                 if sample_rate not in [8000, 24000, 48000]:
                     sample_rate = 48000
 
-                audio = model.apply_tts(
-                    text=text,
-                    speaker=speaker,
-                    sample_rate=sample_rate
-                )
+                with _tts_lock:
+                    audio = model.apply_tts(
+                        text=text,
+                        speaker=speaker,
+                        sample_rate=sample_rate
+                    )
 
                 int16_audio = (audio * 32767).clamp(-32768, 32767).to(torch.int16).cpu().numpy().tobytes()
                 buf = io.BytesIO()
@@ -142,7 +147,7 @@ class SileroHandler(BaseHTTPRequestHandler):
             sys.stderr.write('[silero] ' + (format % args) + '\n')
 
 if __name__ == '__main__':
-    server = HTTPServer(('127.0.0.1', PORT), SileroHandler)
+    server = ThreadingHTTPServer(('127.0.0.1', PORT), SileroHandler)
     print(f'[silero] Сервер запущен на http://127.0.0.1:{PORT}')
     sys.stdout.flush()
     try:
